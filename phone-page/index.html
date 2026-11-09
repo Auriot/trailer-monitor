@@ -1,0 +1,1778 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trailer Monitor</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0b1b3a">
+<style>
+:root { color-scheme:dark; --bg:#0b1b3a; --card:#132a52; --text:#eaf1fb; --muted:#a9bcd8; --line:#2f4a7d; --ok:#4cc38a; --warn:#f2b632; --bad:#ff9b92; --accent:#8db8ff; --accent-text:#0b1b3a; --c-batt:#3987e5; --c-solar:#c98500; --c-temp:#199e70; --c-out:#b794f6; --c-heat:#d95926; }
+* { box-sizing:border-box; }
+html, body { height:100%; overflow:hidden; overscroll-behavior:none; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+/* The app is one fixed screen. The map takes whatever height is left. */
+main { max-width:560px; height:100vh; height:100dvh; margin:0 auto; padding:max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom)); display:flex; flex-direction:column; }
+main > * { flex:none; }
+main > .view { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; }
+.view > .card { flex:none; }
+.view > .card:last-child { margin-bottom:0; }
+.view > .card.fill { flex:1; min-height:0; display:flex; flex-direction:column; }
+[hidden] { display:none !important; }
+
+nav { display:grid; grid-template-columns:repeat(4,1fr) 48px; gap:6px; margin-bottom:8px; }
+nav button { min-height:50px; padding:4px 0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; font-size:12px; font-weight:600; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:10px; }
+nav button svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+nav button.on { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+
+.status { display:flex; justify-content:space-between; gap:10px; margin:0 2px 8px; font-size:13px; color:var(--muted); }
+.pill { font-weight:700; white-space:nowrap; }
+.pill.ok { color:var(--ok); } .pill.warn { color:var(--warn); } .pill.bad { color:var(--bad); } .pill.muted { color:var(--muted); }
+.banner { background:var(--card); border:1px solid var(--warn); border-radius:10px; padding:7px 10px; margin-bottom:8px; font-size:13px; }
+
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+h2 { font-size:13px; margin:0 0 6px; color:var(--muted); font-weight:600; }
+.tiles { display:grid; grid-template-columns:1fr 1fr; gap:6px 10px; }
+.label { font-size:12px; color:var(--muted); }
+.value { font-size:23px; font-weight:650; line-height:1.15; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.value.small { font-size:17px; line-height:1.25; }
+.value.bad, .bad-text { color:var(--bad); }
+.note { margin:7px 0 0; font-size:12.5px; color:var(--muted); }
+.note.old { color:var(--bad); font-weight:600; }
+.stale .value, .value.past { color:var(--muted); }
+.row { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); font-size:14px; background:none; color:inherit; width:100%; text-align:left; border-left:0; border-right:0; border-bottom:0; font-family:inherit; }
+.row:first-child { border-top:0; padding-top:0; } .row:last-child { padding-bottom:0; }
+.row > span:first-child { white-space:nowrap; }
+.row > span:last-child { color:var(--muted); text-align:right; }
+.tiles.three { grid-template-columns:1.2fr .7fr 1fr; }
+.row.moved > span:last-child { color:var(--bad); font-weight:700; }
+
+.btn { font:inherit; font-weight:600; min-height:44px; padding:0 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+.btn.primary { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+input { font:inherit; width:100%; min-height:44px; padding:8px 10px; margin:6px 0 8px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+.map { position:relative; flex:1; min-height:96px; margin:8px 0 0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--bg); }
+.map iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+#m-box iframe { pointer-events:none; } /* A tap on the Home map opens the big map. */
+.map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:8px; text-align:center; font-size:13px; color:var(--muted); }
+.map-cap { position:absolute; top:6px; left:6px; max-width:calc(100% - 52px); padding:2px 7px; border-radius:7px; background:var(--card); border:1px solid var(--line); font-size:12px; line-height:1.3; }
+.map-cap.old { color:var(--bad); font-weight:700; }
+#place-card .map { margin-bottom:2px; }
+#place-card .note { margin-top:5px; }
+a { color:inherit; font-weight:600; }
+.err { color:var(--bad); font-size:13px; min-height:18px; margin:0 0 6px; }
+.gap { margin-top:10px; }
+
+/* Home top row: Temp takes a bit over a quarter of the width, with a light teal tint. */
+#top-row { flex:none; display:grid; grid-template-columns:2.6fr minmax(84px, 1fr); gap:8px; margin-bottom:8px; }
+#top-row > .card { margin:0; min-width:0; }
+#victron-card, #heater-card { cursor:pointer; } /* A tap opens the Power tab or the Heater tab. */
+#victron-card .value { white-space:nowrap; }
+#victron-card.no-shunt #vt-x { order:1; }
+#temp-card { padding-left:10px; padding-right:6px; background:#13405c; border-color:#2a7a86; }
+#temp-card .tiles { grid-template-columns:1fr; }
+#temp-card .value { font-size:20px; white-space:nowrap; }
+#temp-card .value.none { font-size:13px; font-weight:500; line-height:23px; color:var(--muted); }
+
+/* Cell signal: 5 bars, like a phone. */
+.net { display:inline-flex; align-items:center; gap:7px; }
+.bars { display:inline-flex; align-items:flex-end; gap:2px; height:16px; }
+.bars i { width:4px; background:var(--line); border-radius:1px; }
+.bars i:nth-child(1) { height:4px; } .bars i:nth-child(2) { height:7px; } .bars i:nth-child(3) { height:10px; } .bars i:nth-child(4) { height:13px; } .bars i:nth-child(5) { height:16px; }
+.bars i.on { background:var(--text); }
+.bars.old i.on { background:var(--muted); }
+
+/* Heater controls */
+.tiles.four { grid-template-columns:repeat(4, auto); justify-content:space-between; gap:6px 8px; }
+.preview { font-size:12.5px; font-weight:700; color:var(--warn); margin:0 0 6px; }
+.preview.flash { color:var(--bad); }
+.seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:3px; padding:3px; background:var(--bg); border:1px solid var(--line); border-radius:10px; }
+.seg button { min-height:32px; padding:0 10px; border:0; border-radius:8px; background:none; color:var(--muted); font:inherit; font-weight:600; }
+.seg button.on { background:var(--accent); color:var(--accent-text); }
+.ctl-row { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:42px; font-size:14px; }
+.step { display:flex; align-items:center; gap:4px; flex:none; }
+.step button { width:40px; height:36px; font:inherit; font-size:20px; font-weight:600; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:9px; }
+.step output { min-width:58px; text-align:center; font-weight:650; font-variant-numeric:tabular-nums; }
+.ctl-row input { width:auto; min-width:0; flex:0 1 auto; min-height:36px; margin:0; padding:2px 6px; font-size:14px; }
+#ctl-sum { margin:4px 0 8px; font-size:13px; color:var(--text); }
+.actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:auto; }
+.btn.stop { color:var(--bad); border-color:var(--bad); }
+.btn:disabled { opacity:.4; }
+#lim-note { margin:0; flex:1; min-width:0; }
+#lim-note.flash { color:var(--bad); }
+#lim-send { flex:none; min-height:36px; }
+/* Parts on the box (from Settings). */
+#parts-sum { flex:1; min-width:0; }
+#parts-open, #probe-swap, #forget { flex:none; min-height:36px; }
+#probe-word { flex:1; min-width:0; }
+.pt-row > span { flex:none; }
+.pt-row > b { flex:1; min-width:0; text-align:right; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pt-row > b.off { color:var(--muted); font-weight:500; }
+.pt-row > .btn { flex:none; min-height:34px; padding:0 10px; }
+#pe-input { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px; }
+#pe-help { margin:0 0 4px; }
+#pe-msg { margin:0 0 6px; min-height:1.3em; }
+#pe-msg.flash { color:var(--bad); font-weight:600; }
+.pe-near { display:flex; flex-wrap:wrap; gap:6px; }
+.pe-near:empty { display:none; }
+.pe-near button { min-height:34px; padding:0 10px; font-size:13px; }
+.pe-actions { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.pe-actions .btn { min-height:40px; padding:0 6px; }
+/* First open: the terms, over the whole screen. Its text scrolls only on a screen too small for it. */
+.terms { position:fixed; inset:0; z-index:10; background:var(--bg); overflow-y:auto; padding:max(12px, env(safe-area-inset-top)) 14px max(12px, env(safe-area-inset-bottom)); }
+.terms-box { max-width:560px; margin:0 auto; }
+.terms-box h2 { font-size:17px; color:var(--text); margin:0 0 8px; }
+.terms-box p { margin:0 0 8px; font-size:13.5px; line-height:1.35; }
+.terms-box .btn { width:100%; margin-top:4px; }
+
+/* History graphs. All four share the same 7 day columns. */
+.hist-read { margin:0 0 6px; min-height:3.9em; padding:0; border:0; background:none; width:100%; text-align:left; font:inherit; font-size:12.5px; line-height:1.3; color:var(--text); }
+.hist-charts { flex:1; min-height:170px; display:grid; grid-template-rows:3fr 2fr 2fr 2fr; gap:4px; }
+.chart { margin:0; min-height:0; min-width:0; display:flex; flex-direction:column; }
+.chart figcaption { display:flex; justify-content:space-between; gap:8px; font-size:12px; line-height:1.25; color:var(--muted); white-space:nowrap; }
+.chart figcaption > span:last-child { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+.plot { position:relative; flex:1; min-height:0; }
+.plot svg { position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:crosshair; }
+.plot svg * { pointer-events:none; }
+.plot text { font-size:10px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+.plot text.val { fill:var(--text); }
+.plot .gl { stroke:var(--line); stroke-width:1; }
+.plot .cross { stroke:var(--text); stroke-width:1; }
+
+/* POWER: VictronConnect's screens, one Victron device at a time, with its Status, History and Trends. */
+.pw-head { flex:none; display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
+.pw-tabs { display:grid; grid-template-columns:repeat(3, 1fr); border-bottom:1px solid var(--line); }
+.pw-tabs button { min-height:32px; padding:0; background:none; border:0; border-bottom:3px solid transparent; color:var(--muted); font:inherit; font-size:14px; font-weight:600; }
+.pw-tabs button.on { color:var(--text); border-bottom-color:#f07b3f; }
+/* Text on these screens grows to use the free space: the page sets --k to the largest size that fits. */
+#pw-card { --vb:20px; --vp:4px; --tp:5px; --tpb:3px; --tg:4px; }
+.pw-pane { flex:1; min-height:0; display:flex; flex-direction:column; --k:1; --kl:min(calc(1 + (var(--k) - 1) * .6), 1.35); }
+.pw-num { display:block; overflow:hidden; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.gauge { position:relative; flex:1; min-height:80px; }
+.gauge svg { position:absolute; inset:0; width:100%; height:100%; }
+.gauge .label { position:absolute; top:2px; left:0; }
+.g-num { position:absolute; left:0; right:0; top:52%; transform:translateY(-50%); text-align:center; font-size:44px; font-weight:400; line-height:1; }
+.g-num small { font-size:.4em; color:var(--muted); margin-left:3px; }
+.vhead { flex:none; margin:4px -12px 0; padding:3px 12px; background:#1b3868; font-size:calc(12px * var(--kl)); color:var(--muted); }
+.vrow { flex:none; display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:calc(var(--vp) * var(--k)) 0; border-top:1px solid var(--line); }
+.vhead + .vrow { border-top:0; }
+.vrow > span { color:var(--muted); font-size:calc(14px * var(--kl)); white-space:nowrap; }
+.vrow > b { font-size:calc(var(--vb) * var(--k)); font-weight:500; text-align:right; }
+.vrow > b.bad { color:var(--bad); white-space:normal; overflow:visible; line-height:1.15; } /* A long alarm takes two lines. */
+#pw-rows { flex:none; }
+#pw-age, #pp-age, #shh-note, #sol-note { flex:none; }
+.bp-box { position:relative; flex:1; min-height:84px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
+.bp-box svg { flex:1; min-height:24px; max-height:170px; width:100%; }
+.bp-v { font-size:40px; line-height:1; }
+.bp-load { display:flex; align-items:center; gap:8px; font-size:calc(14px * var(--kl)); color:var(--muted); }
+.bp-pill { min-width:44px; padding:2px 10px; border-radius:12px; border:1px solid var(--line); font-weight:700; text-align:center; }
+.bp-pill.on { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+.bp-pill.off { color:var(--bad); border-color:var(--bad); }
+.vgrid { flex:1; min-height:0; }
+.vsec { break-inside:avoid; }
+@media (orientation:portrait) { .vgrid { display:flex; flex-direction:column; justify-content:space-between; } } /* The groups spread down a tall screen. */
+.vtiles { display:grid; grid-template-columns:1fr 1fr; gap:calc(var(--tg) * var(--k)) 12px; padding:calc(var(--tp) * var(--k)) 0 calc(var(--tpb) * var(--k)); }
+.vt { min-width:0; border-left:3px solid var(--line); padding-left:8px; }
+.vt > span { display:block; font-size:calc(12px * var(--kl)); color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vt > b { font-size:calc(var(--vb) * var(--k)); font-weight:500; line-height:1.2; }
+.sol-grid { flex:1; min-height:0; display:grid; grid-template-columns:max-content repeat(7, minmax(0, 1fr)); grid-template-rows:auto minmax(36px, 1fr) repeat(4, auto); font-size:calc(12px * var(--k)); font-variant-numeric:tabular-nums; }
+.sol-grid > div { min-width:0; padding:2px 0; text-align:center; white-space:nowrap; overflow:hidden; }
+.sol-grid > .rl { padding-left:2px; padding-right:6px; text-align:right; color:var(--muted); }
+.sol-grid > .shade { background:rgba(255,255,255,.045); }
+.sol-grid > .dname { color:var(--muted); }
+.sol-grid > .bar { position:relative; padding:0; border-bottom:1px solid var(--line); }
+.sol-grid > .bar i { position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:calc(100% - 8px); max-width:30px; background:var(--c-solar); border-radius:3px 3px 0 0; }
+.sol-grid > .bar em { position:absolute; left:0; right:0; font-style:normal; font-size:calc(10px * var(--kl)); color:var(--text); }
+.pw-pane.stale .pw-num, .pw-pane.stale .g-num { color:var(--muted); }
+.tr-day { flex:none; display:flex; align-items:center; justify-content:space-between; gap:6px; font-size:calc(15px * var(--kl)); font-weight:600; }
+.tr-day button { width:40px; height:30px; font:inherit; font-size:18px; color:var(--text); background:none; border:0; }
+.tr-day button:disabled { opacity:.25; }
+.tr-sum { flex:none; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin:4px 0 6px; padding:6px 8px; border-radius:8px; background:var(--bg); border:0; width:100%; text-align:left; font:inherit; color:var(--text); }
+.tr-sum > div { min-width:0; border-left:2px solid var(--line); padding-left:6px; }
+.tr-sum span { display:block; font-size:calc(11.5px * var(--kl)); color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tr-sum b { font-size:calc(16px * var(--k)); font-weight:650; }
+.tr-sum.sel { outline:1px solid var(--accent); }
+.tr-legend { flex:none; display:flex; justify-content:space-between; font-size:calc(11px * var(--kl)); color:var(--muted); }
+.tr-legend i { display:inline-block; width:9px; height:9px; margin-left:4px; border-radius:2px; vertical-align:-1px; }
+#tr-plot { flex:1; min-height:90px; }
+#tr-plot text.r { text-anchor:start; }
+
+/* Short screen, such as a phone with its browser bars showing: more room for the map. */
+@media (orientation:portrait) and (max-height:700px) {
+  nav { margin-bottom:6px; }
+  nav button { min-height:44px; font-size:11px; }
+  nav button svg { width:19px; height:19px; }
+  .status { margin-bottom:6px; }
+  .card { padding:8px 10px; }
+  #top-row { margin-bottom:6px; }
+  .card:not(#unit-card) { margin-bottom:6px; }
+  #top-row > .card { margin:0; }
+  .map { min-height:84px; margin-top:6px; }
+  .note { margin-top:4px; }
+  #victron-card .tiles { gap:2px 10px; }
+  #victron-card .value, #temp-card .value { font-size:18px; }
+  #temp-card .tiles { gap:2px 10px; }
+  .ctl-row { min-height:38px; }
+  .pw-head { gap:4px; }
+  #pw-dev button { min-height:28px; }
+  .pw-tabs button { min-height:28px; }
+  #pw-card { --vb:18px; --vp:3px; --tp:3px; --tpb:2px; --tg:2px; }
+  .vhead { margin-left:-10px; margin-right:-10px; padding-left:10px; padding-right:10px; }
+}
+
+/* Phone on its side: columns, so it still fits with no scrolling. */
+@media (orientation:landscape) and (max-height:520px) {
+  main { max-width:none; padding-left:max(12px, env(safe-area-inset-left)); padding-right:max(12px, env(safe-area-inset-right)); }
+  nav { margin-bottom:6px; }
+  nav button { flex-direction:row; gap:6px; min-height:38px; }
+  nav button svg { width:18px; height:18px; }
+  .status { margin-bottom:6px; }
+  .card { padding:8px 10px; }
+  h2 { margin-bottom:4px; }
+  .value { font-size:20px; }
+  .map { min-height:50px; }
+  #view-home { display:grid; grid-template-columns:1fr 1fr 1fr; grid-template-rows:auto minmax(0, 1fr); gap:8px; }
+  #view-setup:not([hidden]) { display:grid; grid-template-columns:1fr 1fr; align-items:start; gap:8px; }
+  #view-setup .card { margin:0; padding-top:6px; padding-bottom:6px; }
+  #view-parts:not([hidden]) { display:grid; grid-template-columns:1fr; align-items:start; }
+  #part-edit:not([hidden]) { display:grid; grid-template-columns:1fr 1fr; column-gap:12px; align-items:start; }
+  #part-edit > h2, #part-edit > #pe-help, #part-edit > .pe-near { grid-column:1; }
+  #part-edit > #pe-input, #part-edit > #pe-msg, #part-edit > .pe-actions { grid-column:2; }
+  #part-edit > #pe-input { grid-row:1 / 3; margin-top:0; }
+  .pt-row > .btn, .pe-actions .btn, .pe-near button { min-height:30px; }
+  #pe-input { min-height:32px; padding:4px 8px; }
+  .terms-box { max-width:none; column-count:2; column-gap:20px; }
+  .terms-box p { font-size:12.5px; margin-bottom:6px; }
+  .terms-box .btn { break-before:avoid; min-height:36px; }
+  #view-home > .card, #top-row > .card { margin:0; min-height:0; }
+  #top-row { display:contents; }
+  #victron-card { grid-column:1; grid-row:1 / 3; }
+  #temp-card { grid-column:2; grid-row:1; padding:8px 10px; }
+  #temp-card .tiles { grid-template-columns:1fr 1fr; }
+  #heater-card { grid-column:2; grid-row:2; }
+  #unit-card { grid-column:3; grid-row:1 / 3; }
+  #view-heater { display:grid; grid-template-columns:2fr 3fr; grid-template-rows:minmax(0, 1fr); gap:8px; }
+  #view-heater > .card { margin:0; min-height:0; }
+  .tiles.four { grid-template-columns:1fr 1fr; }
+  #ctl-run, #ctl-plan { display:grid; grid-template-columns:1fr 1fr; column-gap:12px; }
+  .ctl-row { min-height:32px; font-size:13px; }
+  .step button { width:32px; height:28px; }
+  .step output { min-width:44px; }
+  .ctl-row input { min-height:28px; font-size:12.5px; padding:0 3px; }
+  #ctl-plan .ctl-row:first-child { grid-column:1 / -1; justify-content:flex-start; gap:12px; }
+  .seg button { min-height:24px; }
+  .actions .btn { min-height:32px; }
+  .preview { margin-bottom:4px; }
+  #ctl-sum { margin:2px 0 4px; font-size:12px; }
+  .hist-read { min-height:2.6em; margin-bottom:4px; }
+  .hist-charts { grid-template-columns:1fr 1fr; grid-template-rows:repeat(2, minmax(0, 1fr)); gap:6px 14px; }
+  #place-card { display:grid !important; grid-template-columns:1fr 1fr; grid-template-rows:repeat(7, min-content) minmax(0, 1fr); column-gap:12px; }
+  #place-card > * { grid-column:1; }
+  #place-card > .map { grid-column:2; grid-row:1 / -1; margin:0; min-height:0; }
+  .note { margin-top:4px; }
+  .pw-head { flex-direction:row; align-items:center; gap:12px; }
+  .pw-head > * { flex:1; }
+  #pw-dev button, .pw-tabs button { min-height:26px; }
+  .vhead { margin:2px 0 0; padding:2px 8px; }
+  #pw-card { --vb:17px; --vp:2px; --tp:2px; --tpb:2px; --tg:2px; }
+  #pw-status:not([hidden]), #pw-protect:not([hidden]) { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:auto minmax(0, 1fr); column-gap:16px; }
+  #pw-status > .gauge, #pw-protect > .bp-box { grid-column:1; grid-row:1 / -1; min-height:0; }
+  #pw-rows, #pp-rows { grid-column:2; grid-row:1; }
+  #pw-age, #pp-age { grid-column:2; grid-row:2; align-self:end; }
+  .vgrid { column-count:2; column-gap:18px; }
+  .sol-grid { grid-template-rows:auto minmax(24px, 1fr) repeat(4, auto); }
+  .sol-grid > div { padding:1px 0; }
+  #pw-trend:not([hidden]) { display:grid; grid-template-columns:minmax(170px, 34%) 1fr; grid-template-rows:auto minmax(0, 1fr); column-gap:12px; }
+  .tr-day { grid-column:1; grid-row:1; }
+  .tr-sum { grid-column:1; grid-row:2; align-self:start; grid-template-columns:1fr; gap:4px; margin:4px 0 0; }
+  .tr-legend { grid-column:2; grid-row:1; align-self:end; }
+  #tr-plot { grid-column:2; grid-row:2; min-height:0; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav>
+    <button id="nav-home" type="button" class="on" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M6 10v10h12V10"/></svg>Home</button>
+    <button id="nav-heater" type="button" aria-label="Heater"><svg viewBox="0 0 24 24"><path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 .5-3-1-5.500 1-8.500Z"/></svg>Heater</button>
+    <button id="nav-power" type="button" aria-label="Power"><svg viewBox="0 0 24 24"><path d="M13 3 5 13.500h6L10 21l8-10.500h-6L13 3Z"/></svg>Power</button>
+    <button id="nav-history" type="button" aria-label="History"><svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M8 15l3-4 3 2 4-6"/></svg>History</button>
+    <button id="nav-setup" type="button" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.600 5.600l2.100 2.100M16.300 16.300l2.100 2.100M5.600 18.400l2.100-2.100M16.300 7.700l2.100-2.100"/></svg></button>
+  </nav>
+
+  <div class="status"><span id="heard">Not connected</span><span id="conn" class="pill muted">Sample</span></div>
+  <div id="banner" class="banner">Sample numbers from real readings. These are not live.</div>
+
+  <!-- HOME: fits one phone screen with no scrolling. -->
+  <div id="view-home" class="view">
+    <div id="top-row">
+    <section class="card" id="victron-card">
+      <h2>Battery and solar</h2>
+      <div class="tiles">
+        <!-- With the battery monitor: Charge, Battery, Charging or Using, Solar now. Without it: the solar charger's numbers. -->
+        <div id="vt-x"><div class="label" id="vk-x">Charge</div><div class="value" id="v-x">--</div></div>
+        <div><div class="label">Battery</div><div class="value" id="v-volts">--</div></div>
+        <div><div class="label" id="vk-amps">Charging</div><div class="value" id="v-amps">--</div></div>
+        <div><div class="label">Solar now</div><div class="value" id="v-watts">--</div></div>
+      </div>
+      <p class="note" id="v-age">No reading yet</p>
+    </section>
+
+    <section class="card" id="temp-card">
+      <h2>Temp</h2>
+      <div class="tiles">
+        <div><div class="label">Inside</div><div class="value" id="h-room">--</div></div>
+        <div><div class="label">Outside</div><div class="value none" id="t-out">No probe</div></div>
+      </div>
+    </section>
+    </div>
+
+    <section class="card" id="heater-card">
+      <h2>Heater</h2>
+      <div class="tiles three">
+        <div><div class="label">Status</div><div class="value" id="h-state">--</div></div>
+        <div><div class="label">Level</div><div class="value" id="h-lvl">--</div></div>
+        <div><div class="label">Run time</div><div class="value" id="h-run">--</div></div>
+      </div>
+      <p class="note" id="h-age">No reading yet</p>
+    </section>
+
+    <section class="card fill" id="unit-card">
+      <div class="row"><span class="net"><span id="u-name">Cell network</span><span class="bars" id="u-bars" role="img" hidden><i></i><i></i><i></i><i></i><i></i></span></span><span id="u-line">--</span></div>
+      <button class="row" id="place-row" type="button"><span>Location</span><span id="l-state">Not reported yet</span></button>
+      <div class="map" id="m-box">
+        <div class="map-empty" id="m-empty">The map shows when a position comes in.</div>
+        <iframe id="m-frame" title="Map of the trailer" tabindex="-1" hidden></iframe>
+        <div class="map-cap" id="m-cap" hidden></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- HEATER -->
+  <div id="view-heater" class="view" hidden>
+    <section class="card" id="heater-detail">
+      <div class="tiles four">
+        <div><div class="label">Status</div><div class="value small" id="hd-state">--</div></div>
+        <div><div class="label">Inside</div><div class="value small" id="hd-room">--</div></div>
+        <div><div class="label">Outside</div><div class="value small" id="hd-out">--</div></div>
+        <div><div class="label">Fault</div><div class="value small" id="h-fault">--</div></div>
+      </div>
+      <p class="note" id="hd-age">No reading yet</p>
+      <p class="note" id="hd-extra">Heater setting <span id="h-set">--</span>. Heater room <span id="hd-hroom">--</span>. Monitor One case <span id="hd-case">--</span>.</p>
+    </section>
+    <!-- Start, Stop, Level and Temp call the unit's "heat" function. Arrive by comes later: hidden. -->
+    <section class="card fill" id="ctl">
+      <p class="preview" id="ctl-note">--</p>
+      <div class="seg" id="ctl-mode" hidden><button type="button" data-v="run">Run now</button><button type="button" data-v="plan">Arrive by</button></div>
+      <div id="ctl-run">
+        <div class="ctl-row" id="row-by"><span>Control by</span><div class="seg" id="ctl-by"><button type="button" data-v="level">Level</button><button type="button" data-v="temp">Temp</button></div></div>
+        <div class="ctl-row" id="row-level"><span id="lvl-label">Level, fan and fuel</span><div class="step" data-s="level"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+        <div class="ctl-row" id="row-rtemp"><span>Heat to</span><div class="step" data-s="target"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+        <div class="ctl-row"><span>Run for</span><div class="step" data-s="hours"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      </div>
+      <div id="ctl-plan" hidden>
+        <div class="ctl-row"><span><label for="p-arrive">Arrive</label></span><input id="p-arrive" type="datetime-local"></div>
+        <div class="ctl-row"><span>Warm to</span><div class="step" data-s="target"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+        <div class="ctl-row"><span>Hold warm</span><div class="step" data-s="hold"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+        <div class="ctl-row"><span>Warm-up time</span><div class="step" data-s="warm"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      </div>
+      <p id="ctl-sum"></p>
+      <div class="actions"><button id="ctl-go" class="btn primary" type="button">Start</button><button id="ctl-stop" class="btn stop" type="button">Stop</button></div>
+    </section>
+  </div>
+
+  <!-- POWER: copies the VictronConnect screens. The box hears only each device's live broadcast,
+       so History and Trends come from the box's own hourly records (7 days). -->
+  <div id="view-power" class="view" hidden>
+    <section class="card fill" id="pw-card">
+      <div class="pw-head">
+        <div class="seg" id="pw-dev"><button type="button" data-v="shunt">Battery</button><button type="button" data-v="solar">Solar</button><button type="button" data-v="protect">Protect</button></div>
+        <div class="pw-tabs" id="pw-tab"><button type="button" data-v="status">Status</button><button type="button" data-v="history">History</button><button type="button" data-v="trends">Trends</button></div>
+      </div>
+      <div class="pw-pane" id="pw-status">
+        <div class="gauge"><div class="label" id="g-label">State of charge</div><svg id="g-arc" viewBox="0 0 120 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg><div class="g-num"><span id="g-val">--</span><small id="g-unit">%</small></div></div>
+        <div id="pw-rows"></div>
+        <p class="note" id="pw-age">No reading yet</p>
+      </div>
+      <div class="pw-pane" id="pw-protect" hidden>
+        <div class="bp-box">
+          <svg viewBox="0 0 64 54" preserveAspectRatio="xMidYMid meet" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.200"><path d="M10 7V4h7v3M47 7V4h7v3"/><rect x="5" y="7" width="54" height="44" rx="2"/><path d="M5 45h54M17 7v44M47 7v44"/><g fill="currentColor" opacity=".35" stroke="none"><rect x="8" y="10" width="48" height="7"/><rect x="8" y="19" width="48" height="7"/><rect x="8" y="28" width="48" height="7"/><rect x="8" y="37" width="48" height="6"/></g></svg>
+          <div class="bp-v pw-num" id="pp-volts">--</div>
+          <div class="bp-load">Load output <span class="bp-pill" id="pp-out">--</span></div>
+        </div>
+        <div id="pp-rows"></div>
+        <p class="note" id="pp-age">No reading yet</p>
+      </div>
+      <div class="pw-pane" id="pw-shhist" hidden>
+        <div class="vgrid" id="shh-grid"></div>
+        <p class="note" id="shh-note"></p>
+      </div>
+      <div class="pw-pane" id="pw-solhist" hidden>
+        <div class="sol-grid" id="sol-grid"></div>
+        <p class="note" id="sol-note"></p>
+      </div>
+      <div class="pw-pane" id="pw-trend" hidden>
+        <div class="tr-day"><button id="tr-prev" type="button" aria-label="Day before">&lt;</button><span id="tr-date">--</span><button id="tr-next" type="button" aria-label="Day after">&gt;</button></div>
+        <button class="tr-sum" id="tr-sum" type="button"></button>
+        <div class="tr-legend" id="tr-legend"></div>
+        <div class="plot" id="tr-plot"><svg id="tr-svg" role="img" aria-label="Hourly graph for the day"></svg></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- HISTORY -->
+  <div id="view-history" class="view" hidden>
+    <section class="card fill" id="hist-card">
+      <button class="hist-read" id="hist-read" type="button"></button>
+      <div class="hist-charts" id="hist-charts">
+        <figure class="chart"><figcaption><span id="hc-batt">Battery, low to high each hour</span><span id="hn-batt"></span></figcaption><div class="plot"><svg id="hs-batt" role="img" aria-label="Battery volts for 7 days"></svg></div></figure>
+        <figure class="chart"><figcaption><span>Solar each day, Wh</span><span id="hn-solar"></span></figcaption><div class="plot"><svg id="hs-solar" role="img" aria-label="Solar watt hours each day"></svg></div></figure>
+        <figure class="chart"><figcaption><span id="hc-temp">Inside and outside</span><span id="hn-temp"></span></figcaption><div class="plot"><svg id="hs-temp" role="img" aria-label="Inside and outside temperature for 7 days"></svg></div></figure>
+        <figure class="chart"><figcaption><span>Heater run time each day</span><span id="hn-heat"></span></figcaption><div class="plot"><svg id="hs-heat" role="img" aria-label="Heater run time each day"></svg></div></figure>
+      </div>
+    </section>
+  </div>
+
+  <!-- LOCATION, opened from the Location row on Home -->
+  <div id="view-place" class="view" hidden>
+    <section class="card fill" id="place-card">
+      <h2>Location</h2>
+      <div class="value small" id="l-val">Not reported yet</div>
+      <p class="note" id="l-age" hidden></p>
+      <div class="map" id="l-box">
+        <div class="map-empty" id="l-empty">The map shows when a position comes in.</div>
+        <iframe id="l-frame" title="Map of the trailer" hidden></iframe>
+      </div>
+      <p class="note" id="l-coords" hidden></p>
+      <p class="note"><a id="l-map" href="#" target="_blank" rel="noopener" hidden>Open in Google Maps</a></p>
+      <p class="note" id="l-home">Home spot not set.</p>
+      <button id="set-home" class="btn gap" type="button" hidden>Make this the home spot</button>
+    </section>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="view-setup" class="view" hidden>
+    <section class="card">
+      <h2>This phone</h2>
+      <div class="ctl-row"><span>Temperature</span><div class="seg" id="set-unit"><button type="button" data-v="F">F</button><button type="button" data-v="C">C</button></div></div>
+      <div class="ctl-row"><span>Fuel can</span><div class="step" data-s="can"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      <div class="ctl-row" id="connected" hidden><span>Connected to the box</span><button id="forget" class="btn" type="button">Disconnect</button></div>
+    </section>
+    <!-- The box keeps these and sends them back in each report (ctl.lim). Hidden until a report has them. -->
+    <section class="card" id="lim-card" hidden>
+      <h2>Heater battery limits</h2>
+      <div class="ctl-row" id="row-limpct"><span>Stop: charge under</span><div class="step" data-s="limStopPct"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      <div class="ctl-row"><span>Stop: volts under</span><div class="step" data-s="limStopV"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      <div class="ctl-row"><p class="note" id="lim-note"></p><button id="lim-send" class="btn primary" type="button">Save</button></div>
+    </section>
+    <!-- The box: its parts (shown once a report from a box program with Settings, v 3, comes in) and the
+         probe swap (shown when the box program has it). The card shows when either row does. -->
+    <section class="card" id="box-card" hidden>
+      <h2>The box</h2>
+      <div class="ctl-row" id="parts-card" hidden><span id="parts-sum">--</span><button id="parts-open" class="btn" type="button">Change</button></div>
+      <div class="ctl-row" id="probe-card" hidden><span id="probe-word">Inside and Outside reversed?</span><button id="probe-swap" class="btn" type="button">Swap</button></div>
+    </section>
+    <form id="setup" class="card">
+      <h2>Connect this phone</h2>
+      <label for="code" class="label">Setup code</label>
+      <input id="code" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p id="setup-err" class="err"></p>
+      <button class="btn primary" type="submit">Connect</button>
+    </form>
+  </div>
+
+  <!-- PARTS, opened from Settings. The box keeps each setting in its memory. A key goes to the box
+       and is never kept on the phone or sent back. -->
+  <div id="view-parts" class="view" hidden>
+    <section class="card" id="parts-list">
+      <h2>Parts on the box</h2>
+      <div class="ctl-row pt-row"><span>Solar charger</span><b id="pt-solar">--</b><button class="btn" type="button" data-part="solar">Change</button></div>
+      <div class="ctl-row pt-row"><span>Battery monitor</span><b id="pt-shunt">--</b><button class="btn" type="button" data-part="shunt">Change</button></div>
+      <div class="ctl-row pt-row"><span>Battery cut-off</span><b id="pt-protect">--</b><button class="btn" type="button" data-part="protect">Change</button></div>
+      <div class="ctl-row pt-row"><span>Heater</span><b id="pt-heater">--</b><button class="btn" type="button" data-part="heater">Change</button></div>
+      <p class="note" id="parts-note">Temperature probes and location need no setting.</p>
+    </section>
+    <section class="card" id="part-edit" hidden>
+      <h2 id="pe-title">--</h2>
+      <p class="note" id="pe-help"></p>
+      <div id="pe-near" class="pe-near"></div>
+      <input id="pe-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-labelledby="pe-title">
+      <p class="note" id="pe-msg"></p>
+      <div class="pe-actions"><button id="pe-save" class="btn primary" type="button">Save</button><button id="pe-remove" class="btn" type="button">Remove</button><button id="pe-back" class="btn" type="button">Back</button></div>
+    </section>
+  </div>
+</main>
+
+<!-- First open: the same terms as the site's agree page. The phone remembers the tap. -->
+<div id="terms" class="terms" hidden>
+  <div class="terms-box">
+    <h2>Before you use this</h2>
+    <p>This is a hobby project, shared for free. It is not a product. It comes with no warranty of any kind and no support.</p>
+    <p>You build it, install it and use it at your own risk. You are responsible for your wiring, your trailer, your heater, your batteries, and for following the laws and rules where you live.</p>
+    <p>Batteries and wiring can start fires. Use the right fuses and wire sizes.</p>
+    <p>A diesel heater burns fuel and makes carbon monoxide. The exhaust must go outside. Check the exhaust and fuel lines for leaks every season. After a heater run, air out the trailer before you go in.</p>
+    <p>When you start the heater from your phone, nobody is there to watch it. The cell signal, the box, the heater or the battery can fail.</p>
+    <p>The people who made this are not liable for any damage, injury or loss that comes from building or using it.</p>
+    <button id="terms-ok" class="btn primary" type="button">I agree</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+// This page holds no secrets and no position. The key and home spot stay on the phone.
+const API = "https://api.particle.io/v1";
+const STORE = "trailer-monitor-v1";
+const OLD_AFTER_MS = 90 * 60 * 1000;       // Hourly reports, so past 90 minutes means one was missed.
+const LOC_OLD_AFTER_MS = 24 * 3600 * 1000; // A parked trailer does not need a new position often.
+const MOVED_M = 100;                       // Under 100 m means it has not moved.
+const STATES = { 0:"Off", 1:"Low power", 2:"Fault", 3:"Bulk", 4:"Absorption", 5:"Float", 6:"Storage", 7:"Equalize" };
+const SOURCES = { 1:"DC power", 2:"USB", 3:"USB", 4:"USB", 5:"no DC power" };
+// Cell network codes, from the public list of North American mobile network codes.
+const NETWORKS = { "AT&T":"310016 310070 310080 310090 310150 310170 310280 310380 310410 310560 310670 310680 310950 311070 311090 311180 311190 312090 312670 312680 313030 313100 313110 313120 313130 313140 313150 313160 313170 313180 313190 313210 314260 314270 314390", "Verizon":"310004 310005 310006 310010 310012 310013 310350 310590 310591 310592 310593 310594 310595 310596 310597 310598 310599 310820 310890 310891 310892 310893 310894 310895 310896 310897 310898 310899 310910 311012 311110 311270 311271 311272 311273 311274 311275 311276 311277 311278 311279 311280 311281 311282 311283 311284 311285 311286 311287 311288 311289 311390 311440 311480 311481 311482 311483 311484 311485 311486 311487 311488 311489 311590 311800 311810 312770", "T-Mobile":"310053 310120 310160 310200 310210 310220 310230 310240 310250 310260 310270 310310 310490 310530 310660 310770 310800 310830 311225 311228 311229 311260 311490 311580 311588 311589 311660 311870 311880 311882 311940 312190 312240 312250 312530", "Bell":"302610", "Rogers":"302720", "Telus":"302220" };
+// Fault and step meanings come from the open AirHeaterBLE projects. Not yet proven on this heater.
+const FAULTS = { 1:"Start failed", 2:"No fuel", 3:"Voltage", 4:"Outlet sensor", 5:"Inlet sensor", 6:"Fuel pump", 7:"Fan", 8:"Igniter", 9:"Too hot", 10:"Heat sensor" };
+const STEPS = { 1:"Self-test", 2:"Igniting", 3:"Running", 4:"Cooling", 6:"Fan only" };
+// Rough fuel use in liters an hour at levels 1 to 10: a straight line across the Vevor 5 kW listing, 0.16 to 0.52.
+const fuelLph = (level) => 0.16 + (level - 1) * 0.04;
+const LITERS_PER_GAL = 3.785;
+const HOLD_LEVEL = 3; // Rough level while it holds the set temperature.
+// Real readings, 2026-11-07 about 20:17Z. Solar yield from VictronConnect at the same time.
+const SAMPLE = { at:"2026-11-07T20:17:25Z", report:{ batt:100, src:5, sig:24, dev:[{ st:3, err:0, cV:1413, dA:14, W:20, y10:12 }],
+  sh:{ soc:992, cV:1416, mA:5176, ah:19, al:0 }, bp:{ st:249, out:1, err:0, al:0, wn:0, inV:1417, outV:1416, off:0 } } };
+// Victron alarm, warning and off-reason bits, from the open victron-ble parsers.
+const ALARMS = { 1:"low voltage", 2:"high voltage", 4:"low state of charge", 8:"low starter voltage", 16:"high starter voltage",
+  32:"low temperature", 64:"high temperature", 128:"mid voltage", 256:"overload", 512:"DC ripple", 4096:"short circuit", 8192:"BMS lockout" };
+const OFF_WHY = { 1:"no input power", 2:"off by its switch", 4:"off by a setting", 8:"remote input", 16:"low battery cut",
+  64:"BMS", 128:"engine shutdown", 256:"checking input voltage" };
+const BP_STATE = { 249:"Active" }, BP_OUT = { 0:"Shut down", 1:"On", 4:"Off" };
+const bitWords = (bits, names) => Object.keys(names).map(Number).filter(b => bits & b).map(b => names[b]).join(", ") || "code " + bits;
+
+const $ = id => document.getElementById(id);
+function networkName(code) {
+  if (!code) return "Cell network";
+  const hit = Object.keys(NETWORKS).find(n => NETWORKS[n].split(" ").includes(code));
+  return hit || "Network " + code.slice(0, 3) + "-" + code.slice(3);
+}
+const state = { unit:null, victron:null, heater:null, device:null, loc:null, fast:false, pin:null, pout:null, ctl:null };
+let cfg = null, abort = null, retryMs = 5000, retryTimer = null, canAskLocation = false, canSayOpen = false, lastAsk = 0, home = null, canAskHist = false, lastHistAsk = 0, histThrough = 0, histExpect = null, histSel = null, hist = {};
+
+const read = (k) => { try { return JSON.parse(localStorage.getItem(STORE + k)); } catch { return null; } };
+const write = (k, v) => { try { localStorage.setItem(STORE + k, JSON.stringify(v)); } catch {} };
+const wipe = (k) => { try { localStorage.removeItem(STORE + k); } catch {} };
+
+// PARTS ON THE BOX (Settings). partSet(kind) is true or false once a box program with Settings
+// (report v 3) has reported, and null before that: an older box program, or no phone connected.
+const PARTS = {
+  solar:   { bit:1, title:"Solar charger", what:"SmartSolar", arg:"solar" },
+  shunt:   { bit:2, title:"Battery monitor", what:"SmartShunt", arg:"shunt" },
+  protect: { bit:4, title:"Battery cut-off", what:"Smart BatteryProtect", arg:"protect" },
+  heater:  { title:"Heater" } };
+const PART_KINDS = ["solar", "shunt", "protect", "heater"];
+const NOT_SET = "Not set up. Add it in Settings, Parts on the box.";
+const KEY_HELP = "In VictronConnect, open this device. Tap the gear, then the three dots, then Product info. Turn on Instant readout, then tap Show. Copy the 32-character key here.";
+const HEATER_HELP = "Tap your heater, or type its Bluetooth name or address. Keep the heater's Bluetooth password at the factory setting.";
+const PART_WAIT_MS = 180000;
+function partSet(kind) {
+  const p = cfg && state.parts;
+  if (!p || !kind) return null;
+  return kind === "heater" ? !!p.hn : !!(p.keyset & PARTS[kind].bit);
+}
+const heaterVolts = () => { const h = state.heater; return h && typeof h.volts === "number" && !isOld(h.at) ? h.volts : null; };
+// The part being changed: kind, the change sent and when, and the words to show.
+let partEdit = null, nearShown = "";
+
+function parseSetup(text) {
+  const m = /^(\d+)\.([0-9a-f]{24})\.([0-9a-f]{20,128})$/i.exec((text || "").trim());
+  return m ? { product:m[1], device:m[2], key:m[3] } : null;
+}
+
+function ago(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms)) return "unknown";
+  if (ms < 60000) return "just now";
+  if (ms < 3600000) return Math.floor(ms / 60000) + " min ago";
+  if (ms < 86400000) return Math.floor(ms / 3600000) + " hr ago";
+  return Math.floor(ms / 86400000) + " days ago";
+}
+const isOld = (iso) => Date.now() - new Date(iso).getTime() > OLD_AFTER_MS;
+
+function metersBetween(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function applyReport(r, at) {
+  if (!r || typeof r !== "object") return;
+  if (typeof r.batt === "number" || typeof r.src === "number" || typeof r.sig === "number") {
+    // Show only what this report holds. An old value must not take a new time.
+    state.unit = { batt:r.batt, src:r.src, sig:r.sig, net:typeof r.net === "string" ? r.net : undefined, at };
+  }
+  const p = r.loc;
+  if (p && typeof p === "object") {
+    if (typeof p.batt === "number" && !(state.unit && state.unit.src != null && !isOld(state.unit.at))) {
+      state.unit = { batt:Math.round(p.batt), sig:typeof p.cell === "number" ? Math.round(p.cell) : undefined, at };
+    }
+    if (typeof p.lat === "number" && typeof p.lon === "number") {
+      const old = state.loc;
+      // A rough estimate must not replace a real GPS fix from the last hour.
+      const keepGps = old && old.lck && !p.lck && new Date(at) - new Date(old.at) < 3600000;
+      if (!keepGps) state.loc = { lat:p.lat, lon:p.lon, acc:p.h_acc, lck:p.lck ? 1 : 0, at };
+    }
+  }
+  const v = Array.isArray(r.dev) ? r.dev.find(d => d && typeof d.cV === "number") : null;
+  // A reading can be older than the report that carries it.
+  const before = (seconds) => new Date(new Date(at).getTime() - (seconds || 0) * 1000).toISOString();
+  if (v) state.victron = { volts:v.cV / 100, amps:(v.dA ?? 0) / 10, watts:v.W, wh:(v.y10 ?? 0) * 10, mode:v.st, err:v.err, at:before(v.age) };
+  // SmartShunt and BatteryProtect: each part comes only once the unit has heard that device.
+  const div = (x, d) => typeof x === "number" ? x / d : null, nz = (x) => typeof x === "number" ? x : null;
+  const sh = r.sh, bp = r.bp;
+  if (sh && typeof sh === "object") state.shunt = { soc:div(sh.soc, 10), volts:div(sh.cV, 100), amps:div(sh.mA, 1000), used:div(sh.ah, 10), min:nz(sh.min), al:sh.al || 0, at:before(sh.age) };
+  if (bp && typeof bp === "object") state.protect = { st:nz(bp.st), out:nz(bp.out), err:nz(bp.err), al:bp.al || 0, wn:bp.wn || 0, inV:div(bp.inV, 100), outV:div(bp.outV, 100), off:bp.off || 0, at:before(bp.age) };
+  if (p && typeof p === "object" && typeof p.temp === "number") state.caseC = p.temp;
+  const h = r.htr;
+  if (h && h.ok) state.heater = { st:h.st, step:h.step, err:h.err, room:h.cab10, set:h.set, lvl:h.lvl, run:h.run, volts:typeof h.v10 === "number" && h.v10 > 0 ? h.v10 / 10 : null, at:before(h.age) };
+  // Box programs with Settings (report v 3) say which parts are set: keyset bits, hn the heater.
+  // near (heaters heard) comes only while the page is open.
+  if (typeof r.v === "number" && r.v >= 3 && typeof r.keyset === "number") {
+    state.parts = { keyset:r.keyset, hn:typeof r.hn === "string" ? r.hn : "" };
+    state.partsAt = Date.now();
+    if (r.f === 1) state.near = Array.isArray(r.near) ? r.near.filter(x => typeof x === "string").slice(0, 3) : [];
+    // A part taken off the box: forget its last reading, so no screen shows it as current.
+    if (!(r.keyset & 1)) state.victron = null;
+    if (!(r.keyset & 2)) state.shunt = null;
+    if (!(r.keyset & 4)) state.protect = null;
+    if (!state.parts.hn) state.heater = null;
+  }
+  // The controls follow the unit, except for a minute after a tap. A thermostat run shows its target
+  // and highest level; otherwise Level follows the heater.
+  if (Date.now() - levelTapAt > 60000) {
+    const k = r.ctl;
+    if (k && k.a === 1 && k.th === 1 && typeof k.tg === "number") { ctl.by = "temp"; ctl.target = Math.round(k.tg / 10 * 9 / 5 + 32); if (k.mx) ctl.level = k.mx; }
+    else if (k && k.a === 1) ctl.by = "level";
+    if (!(k && k.th === 1) && h && h.ok && h.lvl >= 1 && h.lvl <= 10 && !(k && k.wl)) ctl.level = h.lvl;
+  }
+  // Heater control from the unit: a run on the timer, its end, the last command result and why the last run ended.
+  const c = r.ctl;
+  if (c && typeof c === "object") state.ctl = { a:c.a === 1, sw:c.sw === 1, res:c.res, why:c.why, wl:c.wl || 0,
+    th:c.th === 1, tg:typeof c.tg === "number" ? c.tg / 10 : null, mx:c.mx || 0, idle:c.idle === 1, bw:c.bw === 1,
+    end:typeof c.left === "number" ? new Date(at).getTime() + c.left * 1000 : null,
+    resAt:typeof c.rag === "number" ? new Date(at).getTime() - c.rag * 1000 : null,
+    whyAt:typeof c.wag === "number" ? new Date(at).getTime() - c.wag * 1000 : null };
+  // The battery stop limits the box uses: volts x100, charge % (0 is off).
+  if (c && Array.isArray(c.lim) && c.lim.length === 2 && c.lim.every(x => typeof x === "number"))
+    state.lim = { stopV:c.lim[0] / 100, stopPct:c.lim[1] };
+  // The unit keeps the last reading of each probe and says how old it is.
+  const pr = r.pr;
+  if (pr && typeof pr === "object") {
+    if (typeof pr.in === "number") state.pin = { c:pr.in / 100, at:before(pr.ia) };
+    if (typeof pr.out === "number") state.pout = { c:pr.out / 100, at:before(pr.oa) };
+  }
+  if (typeof r.f === "number") state.fast = r.f === 1;
+  if (cfg) { write(".unit", state.unit); write(".victron", state.victron); write(".heater", state.heater); write(".loc", state.loc); write(".pin", state.pin); write(".pout", state.pout); write(".shunt", state.shunt); write(".protect", state.protect); write(".lim", state.lim); write(".parts", state.parts); }
+  render();
+}
+
+function heaterWord(h) {
+  if (h.st === 0) return h.step === 0 ? "Off" : "Stopping";
+  return STEPS[h.step] || "On";
+}
+const faultWord = (code) => FAULTS[code] || "Code " + code;
+const showC = (c) => prefs.unit === "C" ? Math.round(c) + " C" : Math.round(c * 9 / 5 + 32) + " F";
+const showF = (f) => showC((f - 32) * 5 / 9);
+function showTime(seconds) {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return m + " min";
+  return Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " m" : "");
+}
+
+function placeWord(l) {
+  if (!l) return { text:"Not reported yet", moved:false };
+  if (!home) return { text:"Home spot not set", moved:false };
+  if (!l.lck) return { text:"No GPS fix yet", moved:false };
+  const m = metersBetween(home, l);
+  return m < MOVED_M ? { text:"Not moved", moved:false } : { text:"MOVED " + Math.round(m) + " m", moved:true };
+}
+
+// Load a map only while its screen shows, and only if the trailer moved about 100 m.
+function loadMap(frameId, viewId, l) {
+  const frame = $(frameId), key = l.lat.toFixed(3) + "," + l.lon.toFixed(3);
+  if ($(viewId).hidden || frame.dataset.key === key) return;
+  frame.dataset.key = key;
+  const dLat = 0.003, dLon = 0.004;
+  frame.src = "https://www.openstreetmap.org/export/embed.html?bbox=" + (l.lon - dLon) + "," + (l.lat - dLat) + "," + (l.lon + dLon) + "," + (l.lat + dLat) + "&layer=mapnik&marker=" + l.lat + "," + l.lon;
+}
+
+function render() {
+  const v = state.victron, u = state.unit, d = state.device, h = state.heater, l = state.loc;
+
+  const vOld = v && isOld(v.at);
+  // The battery monitor gives the battery numbers when the unit has heard it; else the solar charger does.
+  const sh = state.shunt, bp = state.protect, hasSh = !!(sh && typeof sh.soc === "number"), shOld = hasSh && isOld(sh.at);
+  $("victron-card").classList.toggle("no-shunt", !hasSh);
+  if (hasSh) {
+    const a = sh.amps;
+    $("vk-x").textContent = "Charge"; $("v-x").textContent = Math.floor(sh.soc) + " %";
+    $("v-volts").textContent = fix(sh.volts, 2, "V");
+    $("vk-amps").textContent = typeof a !== "number" || Math.abs(a) < 0.05 ? "Current" : a > 0 ? "Charging" : "Using";
+    $("v-amps").textContent = typeof a === "number" ? Math.abs(a).toFixed(1) + " A" : "--";
+  } else {
+    $("vk-x").textContent = "Solar today"; $("v-x").textContent = v ? v.wh + " Wh" : "--";
+    // With no Victron reading, the battery comes from the heater's own reading.
+    $("v-volts").textContent = v ? v.volts.toFixed(2) + " V" : heaterVolts() !== null ? heaterVolts().toFixed(1) + " V" : "--";
+    $("vk-amps").textContent = "Charging"; $("v-amps").textContent = v ? v.amps.toFixed(1) + " A" : "--";
+  }
+  $("v-watts").textContent = v ? v.watts + " W" : "--";
+  const anyOld = !!vOld || shOld, oldest = [hasSh ? sh : null, v].filter(Boolean).sort((x, y) => new Date(x.at) - new Date(y.at))[0];
+  const bpCut = !!(bp && bp.out !== null && bp.out !== 1 && !isOld(bp.at));
+  $("victron-card").classList.toggle("stale", anyOld);
+  // Problems first. With a problem, the charger's normal state is left out so the card stays short.
+  const warn = [hasSh && sh.al ? "ALARM: " + bitWords(sh.al, ALARMS) + "." : "",
+    bpCut ? "LOAD OUTPUT " + (BP_OUT[bp.out] || "code " + bp.out).toUpperCase() + (bp.off ? ": " + bitWords(bp.off, OFF_WHY) : "") + "." : "",
+    v && v.err ? "Solar charger error code " + v.err + "." : ""].filter(Boolean).join(" ");
+  const readWords = oldest ? (anyOld ? "OLD READING: " : "Read ") + ago(oldest.at) + "." : "";
+  const noVictron = partSet("solar") === false && partSet("shunt") === false;
+  $("v-age").textContent = !oldest ? (heaterVolts() !== null ? "Battery from the heater's own reading." + (noVictron ? " No Victron parts set up." : "")
+      : noVictron ? "No battery parts set up. Add them in Settings." : "No reading yet") : warn ? warn + " " + readWords :
+    readWords + (v ? " Solar charger " + (STATES[v.mode] || "code " + v.mode) + ". No errors." : "");
+  $("v-age").classList.toggle("old", anyOld || !!(v && v.err) || !!(hasSh && sh.al) || bpCut);
+
+  const hOld = h && isOld(h.at);
+  $("heater-card").classList.toggle("stale", !!hOld);
+  $("heater-detail").classList.toggle("stale", !!hOld);
+  const word = h ? heaterWord(h) : "--";
+  // Inside is the probe. With no probe reading yet, it is the heater's own room sensor.
+  const hasRoom = !!h && typeof h.room === "number", pin = state.pin, pout = state.pout;
+  const room = pin ? showC(pin.c) : hasRoom ? showC(h.room / 10) : "--";
+  const inOld = pin ? isOld(pin.at) : !!hOld, outOld = !!pout && isOld(pout.at), outText = pout ? showC(pout.c) : "No probe";
+  $("t-out").textContent = outText; $("hd-out").textContent = outText; $("t-out").classList.toggle("none", !pout);
+  $("hd-hroom").textContent = hasRoom ? showC(h.room / 10) : "--";
+  [$("h-room"), $("hd-room")].forEach(e => e.classList.toggle("past", inOld));
+  [$("t-out"), $("hd-out")].forEach(e => e.classList.toggle("past", outOld));
+  $("h-state").textContent = word; $("hd-state").textContent = word;
+  $("h-room").textContent = room; $("hd-room").textContent = room;
+  $("h-lvl").textContent = h && typeof h.lvl === "number" ? String(h.lvl) : "--";
+  $("h-run").textContent = h && typeof h.run === "number" ? showTime(h.run) : "--";
+  $("h-fault").textContent = h ? (h.err ? faultWord(h.err) : "None") : "--";
+  $("h-fault").classList.toggle("bad", !!(h && h.err));
+  $("h-set").textContent = h ? showF(h.set) + ", level " + h.lvl : "--";
+  $("hd-case").textContent = typeof state.caseC === "number" ? showC(state.caseC) : "--";
+  const timer = state.ctl && state.ctl.a && state.ctl.end ? " Timer stops it " + clock(state.ctl.end) + "." : "";
+  const hNote = !h ? (partSet("heater") === false ? "Not set up. Add the heater in Settings." : "No reading yet") : (hOld ? "OLD READING: " : "Read ") + ago(h.at) + ". " + (h.err ? "FAULT: " + faultWord(h.err) + ", code " + h.err + "." : "No fault.") + timer;
+  $("h-age").textContent = hNote; $("hd-age").textContent = hNote;
+  [$("h-age"), $("hd-age")].forEach(e => e.classList.toggle("old", !!hOld || !!(h && h.err)));
+
+  const place = placeWord(l);
+  $("l-state").textContent = place.text;
+  $("place-row").classList.toggle("moved", place.moved);
+
+  const parts = [];
+  // One bar for each 20 % of signal. 0 % or less lights no bars.
+  const hasSig = !!u && typeof u.sig === "number", lit = hasSig ? Math.max(0, Math.min(5, Math.ceil(u.sig / 20))) : 0;
+  const barBox = $("u-bars");
+  barBox.hidden = !hasSig;
+  barBox.setAttribute("aria-label", "Signal " + lit + " of 5 bars");
+  barBox.classList.toggle("old", !!(u && isOld(u.at)));
+  [...barBox.children].forEach((b, i) => b.classList.toggle("on", i < lit));
+  if (u && u.batt != null) parts.push("unit battery " + u.batt + " %");
+  if (u && SOURCES[u.src]) parts.push(SOURCES[u.src]);
+  $("u-name").textContent = networkName(u && u.net);
+  $("u-line").textContent = parts.length ? parts.join(", ") + (u && isOld(u.at) ? " (OLD)" : "") : "--";
+
+  ["l-age", "l-map", "l-frame", "l-coords", "m-frame", "m-cap"].forEach(i => { $(i).hidden = !l; });
+  $("m-empty").hidden = !!l; $("l-empty").hidden = !!l;
+  $("set-home").hidden = !(l && l.lck);
+  if (l) {
+    const near = typeof l.acc === "number" ? ", within about " + Math.round(l.acc) + " m" : "";
+    $("l-val").textContent = (l.lck ? "GPS fix" : "Rough estimate, no GPS") + near;
+    const locOld = Date.now() - new Date(l.at).getTime() > LOC_OLD_AFTER_MS;
+    $("l-age").textContent = (locOld ? "OLD POSITION: " : "Found ") + ago(l.at);
+    $("l-age").classList.toggle("old", locOld);
+    $("m-cap").textContent = (locOld ? "OLD POSITION: " : (l.lck ? "GPS fix, " : "Rough estimate, ")) + ago(l.at);
+    $("m-cap").classList.toggle("old", locOld);
+    $("l-map").href = "https://www.google.com/maps?q=" + l.lat + "," + l.lon;
+    $("l-coords").textContent = l.lat.toFixed(5) + ", " + l.lon.toFixed(5);
+    loadMap("m-frame", "view-home", l);
+    loadMap("l-frame", "view-place", l);
+  } else {
+    $("l-val").textContent = "Not reported yet";
+  }
+  $("l-home").textContent = !home ? "Home spot not set." : (l && l.lck ? Math.round(metersBetween(home, l)) + " m from the home spot. The limit is " + MOVED_M + " m." : "Home spot is set.");
+
+  renderCtl();
+  renderParts();
+  $("hc-batt").textContent = partSet("solar") === false && partSet("shunt") === false ? "Battery (heater's reading), low to high each hour" : "Battery, low to high each hour";
+  renderHistory();
+  renderPower();
+  if (d) $("heard").textContent = (d.online ? "Online" : "Offline") + ", heard " + ago(d.lastHeard) + (state.fast ? ", updates every 30 s" : "");
+}
+
+// HEATER CONTROLS. Run now with a timer is live (Start and Stop below). Level, Temp and Arrive by are math only, hidden.
+const prefs = Object.assign({ unit:"F", can:5 }, read(".prefs"));
+const ctl = { mode:"run", by:"level", level:10, target:65, hours:4, arrive:null, hold:1, warm:2 };
+const hrs = (v) => v + " hr";
+const STEPPERS = {
+  level:  { get:() => ctl.level,  set:v => ctl.level = v,  min:1,   max:10, step:() => 1,   show:String },
+  target: { get:() => ctl.target, set:v => ctl.target = v, min:46,  max:85, step:() => prefs.unit === "C" ? 1.8 : 1, show:showF }, // The unit takes 40 to 85 F, under its 90 F stop.
+  hours:  { get:() => ctl.hours,  set:v => ctl.hours = v,  min:1,   max:8,  step:() => 1,   show:hrs },
+  hold:   { get:() => ctl.hold,   set:v => ctl.hold = v,   min:0,   max:3,  step:() => 0.5, show:hrs },
+  warm:   { get:() => ctl.warm,   set:v => ctl.warm = v,   min:0.5, max:6,  step:() => 0.5, show:hrs },
+  can:    { get:() => prefs.can,  set:v => { prefs.can = v; write(".prefs", prefs); }, min:1, max:20, step:() => 1, show:v => v + " gal" },
+  // Battery stop limits: the same ranges the box takes (heaterrules::validLimits). Charge steps 5 %; under 10 is Off.
+  limStopPct:  { get:() => lim.stopPct,  set:v => editLim("stopPct", pctStep(lim.stopPct, v)),  min:0, max:80, step:() => 5, show:v => showPct(v) },
+  limStopV:    { get:() => lim.stopV,    set:v => editLim("stopV", v),  min:11.6, max:12.4, step:() => 0.1, show:v => v.toFixed(1) + " V" },
+};
+const gal = (liters) => (liters / LITERS_PER_GAL).toFixed(1);
+const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+function localInput(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+function nextNine() {
+  const d = new Date(); d.setHours(9, 0, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+function setSeg(id, value) { $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === value)); }
+
+function renderCtl() {
+  renderLim();  // First: it may move the limits to the box's numbers before the steppers show them.
+  setSeg("ctl-mode", ctl.mode); setSeg("ctl-by", ctl.by); setSeg("set-unit", prefs.unit);
+  document.querySelectorAll(".step").forEach(el => { const s = STEPPERS[el.dataset.s]; el.querySelector("output").textContent = s.show(s.get()); });
+  $("ctl-run").hidden = ctl.mode !== "run"; $("ctl-plan").hidden = ctl.mode !== "plan";
+  const temp = ctl.by === "temp";
+  $("row-level").hidden = false; $("row-rtemp").hidden = !temp;
+  $("lvl-label").textContent = temp ? "Highest level" : "Level, fan and fuel";
+  renderHeat();
+  if (ctl.mode === "run") {
+    const until = clock(Date.now() + ctl.hours * 3600000);
+    $("ctl-sum").textContent = temp
+      ? "Keeps " + showF(ctl.target) + " until " + until + ". Uses up to about " + gal(fuelLph(ctl.level) * ctl.hours) + " gal. " + safety()
+      : (heaterOn() ? "Set timer: stops at " : "Start: stops at ") + until + ". Uses about " + gal(fuelLph(ctl.level) * ctl.hours) + " gal at level " + ctl.level + ". " + safety();
+    return;
+  }
+  const arrive = new Date($("p-arrive").value).getTime();
+  if (!isFinite(arrive)) { $("ctl-sum").textContent = "Pick the time you arrive."; return; }
+  const warmAt = arrive - ctl.hold * 3600000, startAt = warmAt - ctl.warm * 3600000, stopAt = arrive + 3600000;
+  if (startAt < Date.now()) { $("ctl-sum").textContent = "Not enough time to reach " + showF(ctl.target) + ". Pick a later time."; return; }
+  const liters = fuelLph(10) * ctl.warm + fuelLph(HOLD_LEVEL) * (ctl.hold + 1);
+  $("ctl-sum").textContent = "Starts " + clock(startAt) + ". " + showF(ctl.target) + " by " + clock(warmAt) + ". Holds to " + clock(arrive) + ". Latest stop " + clock(stopAt) + ". Uses about " + gal(liters) + " gal.";
+}
+
+// HEATER START AND STOP. The unit does the work and keeps the timer and safety stops itself,
+// so they work with no phone and no cell signal. Its answer comes in the next report.
+// The battery stop limits the box uses; before a report says, the box's defaults.
+// Stop limits only, no start limits; the BatteryProtect is the final protection.
+const LIM_DEFAULT = { stopV:11.8, stopPct:0 };
+const boxLim = () => state.lim || LIM_DEFAULT;
+const safety = () => { const b = boxLim();
+  return "It also stops by itself above 90 F inside, battery under " + b.stopV.toFixed(1) + " V" + (b.stopPct ? " or charge under " + b.stopPct + " %" : "") + ", probe lost, or a heater fault."; };
+const resultText = (code) => code === -3 ? "Not started: battery under " + boxLim().stopV.toFixed(1) + " V."
+  : code === -12 ? "Not started: battery charge under " + boxLim().stopPct + " %." : RESULTS[code] || "Code " + code;
+const RESULTS = { 1:"Started.", 2:"Timer set.", 3:"Stopped. The heater cools down for a few minutes.", 4:"Level set.",
+  5:"Thermostat on.", 6:"Highest level set.", 7:"Battery limits saved.",
+  "-10":"Level not confirmed. The heater keeps its level.", "-11":"The heater would not take level mode. Level not changed.",
+  "-1":"Could not reach the heater. Close the heater app on any other phone, then try again.",
+  "-2":"Not started: the heater shows a fault.",
+  "-4":"Not started: the heater is still cooling down. Try again in a few minutes.",
+  "-5":"Not started: inside is already 90 F or more.", "-6":"Not started: no inside temperature. The heater needs the inside probe.",
+  "-7":"Not started: the unit's clock is not set yet. Try again in a minute.",
+  "-8":"The heater did not start, so the unit sent stop.",
+  "-9":"STOP NOT CONFIRMED. The unit keeps trying. Check the heater.",
+  8:"Heater setting saved.", "-13":"Heater not changed: it is running. Stop it first.", "-14":"The box could not save it. Nothing changed." };
+// Results of a heater name change. They show on the Parts screen, not on the heater card.
+const PART_RESULTS = [8, -13, -14];
+const WHYS = { 1:"you pressed Stop", 2:"the timer ended", 3:"inside reached 90 F", 4:"the inside probe was lost",
+  5:"the battery was low", 6:"a heater fault", 7:"it stopped at the heater or by itself", 8:"the unit had no clock",
+  9:"it did not start", 10:"the battery charge was low" };
+// HEATER BATTERY LIMITS on Settings. lim holds what the screen shows; it follows the box until a tap.
+const lim = Object.assign({}, LIM_DEFAULT);
+let limEdited = false, limSent = 0, limErr = "";
+const showPct = (v) => v ? v + " %" : "Off";
+// From Off a tap up goes to 10 %; from 10 % a tap down goes to Off.
+const pctStep = (now, v) => v > 0 && v < 10 ? (now === 0 ? 10 : 0) : v;
+function editLim(k, v) { lim[k] = v; limEdited = true; limSent = 0; limErr = ""; }
+const cents = (v) => Math.round(v * 100);
+const limSame = (a, b) => cents(a.stopV) === cents(b.stopV) && a.stopPct === b.stopPct;
+function renderLim() {
+  const card = $("lim-card"), b = state.lim;
+  card.hidden = !b; if (!b) return;
+  // The charge % stop needs the battery monitor. Without one it is hidden, unless the box still has one set.
+  $("row-limpct").hidden = partSet("shunt") === false && b.stopPct === 0 && lim.stopPct === 0;
+  if (!limEdited) { if (!limSame(lim, b)) limSent = 0; Object.assign(lim, b); }  // Changed elsewhere: not our save.
+  const same = limSame(lim, b);
+  if (same) limEdited = false;
+  let text;
+  if (limErr) text = limErr;
+  else if (limSent && !same) text = Date.now() - limSent > 180000 ? "No answer from the box yet. Check the signal." : "Sent. The box answers in about 30 seconds.";
+  else if (same) text = limSent ? "Saved on the box." : "Under one for 5 minutes: the box stops the heater, with its cool-down.";
+  else text = "Not saved yet. Tap Save.";
+  const n = $("lim-note"); n.textContent = text; n.classList.toggle("flash", !!limErr);
+  $("lim-send").disabled = !canHeat || same || (!!limSent && Date.now() - limSent < 180000);
+}
+async function sendLim() {
+  if (!state.lim) return;
+  limSent = Date.now(); limErr = ""; renderLim();
+  const j = await callUnit("heat", "bat," + cents(lim.stopV) + "," + lim.stopPct);
+  if (!j || j.return_value !== 1) { limSent = 0; limErr = j && j.return_value === -1 ? "The box refused these numbers. Nothing changed." : "Could not reach the unit. Nothing changed."; }
+  renderLim();
+}
+
+function renderParts() {
+  const p = state.parts, ok = !!cfg && !!p;
+  $("parts-card").hidden = !ok;
+  $("box-card").hidden = $("parts-card").hidden && $("probe-card").hidden;
+  if (!ok) { if (!$("view-parts").hidden) show("setup"); return; }
+  const count = PART_KINDS.filter(k => partSet(k)).length;
+  $("parts-sum").textContent = "Parts: " + (count ? count + " of 4 set" : "none set yet");
+  const reading = { solar:state.victron, shunt:state.shunt, protect:state.protect, heater:state.heater };
+  PART_KINDS.forEach(k => {
+    const on = partSet(k), x = reading[k], el = $("pt-" + k);
+    el.textContent = !on ? "Not set" : k === "heater" ? p.hn : x && !isOld(x.at) ? "Set, reading" : "Set, no reading yet";
+    el.classList.toggle("off", !on);
+  });
+  $("parts-list").hidden = !!partEdit; $("part-edit").hidden = !partEdit;
+  if (!partEdit) return;
+
+  const e = partEdit, k = e.kind, heater = k === "heater", on = partSet(k), part = PARTS[k];
+  $("pe-title").textContent = part.title + (part.what ? " (" + part.what + ")" : "") + ": " + (on ? (heater ? p.hn : "set") : "not set");
+  const near = heater ? (state.near || []) : [];
+  $("pe-help").textContent = !heater ? KEY_HELP : HEATER_HELP + (near.length ? "" : " No heater heard yet. One shows here within a minute when the heater has power.");
+  $("pe-input").placeholder = heater ? "Heater name or address" : "32 letters and numbers";
+  const nearKey = near.join("\n");
+  if (nearKey !== nearShown) {
+    nearShown = nearKey;
+    $("pe-near").replaceChildren(...near.map(n => { const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.dataset.name = n; b.textContent = n; return b; }));
+  }
+
+  // A change is done when a report after the box took it shows it.
+  const s = e.sent, c = state.ctl;
+  if (s && s.ackAt) {
+    const after = state.partsAt && state.partsAt > s.ackAt;
+    // A refusal counts only from a report that came after the box took this change.
+    const refused = heater && after && c && c.resAt && c.resAt >= s.at - 3000 && (c.res === -13 || c.res === -14);
+    const done = after && (s.what === "remove" ? !on : heater ? p.hn === s.name : on);
+    if (refused) { e.sent = null; e.msg = RESULTS[c.res]; e.bad = true; }
+    else if (done) { e.sent = null; e.msg = s.what === "remove" ? "Removed from the box." : heater ? "Saved. The box looks for this heater now." : "Saved on the box. A reading shows within a minute."; e.bad = false; }
+    else if (Date.now() - s.at > PART_WAIT_MS) { e.sent = null; e.msg = "No answer from the box yet. Check the signal."; e.bad = true; }
+  }
+  const busy = !!e.sent;
+  const m = $("pe-msg"); m.textContent = busy ? "Sent. The box answers in about 30 seconds." : e.msg; m.classList.toggle("flash", !busy && !!e.bad);
+  $("pe-save").disabled = busy;
+  const armed = Date.now() - e.armed < 4000;
+  $("pe-remove").disabled = busy || !on;
+  $("pe-remove").textContent = armed ? "Tap again" : "Remove";
+}
+
+function openPart(kind) {
+  partEdit = { kind, sent:null, msg:"", bad:false, armed:0 };
+  nearShown = null;
+  $("pe-input").value = kind === "heater" && state.parts ? state.parts.hn : "";
+  renderParts();
+}
+
+// Sends one change. The box answers 1 to 3 (it has it) or -1 (the text is not right).
+async function sendPart(fn, arg, what, name) {
+  const e = partEdit;
+  e.sent = { what, name, at:Date.now(), ackAt:0 }; e.msg = ""; e.bad = false; e.armed = 0;
+  renderParts();
+  const j = await callUnit(fn, arg);
+  if (partEdit !== e || !e.sent) return;
+  if (j && typeof j.return_value === "number" && j.return_value > 0) e.sent.ackAt = Date.now();
+  else { e.sent = null; e.bad = true; e.msg = j && j.return_value === -1 ? "The box refused it. Check what you typed." : "Could not reach the box. Nothing changed."; }
+  renderParts();
+}
+
+function savePart() {
+  const e = partEdit; if (!e || e.sent) return;
+  const text = $("pe-input").value;
+  if (e.kind === "heater") {
+    const name = text.trim();
+    if (!/^[\x20-\x21\x23-\x5b\x5d-\x7e]{1,23}$/.test(name) || name === "off") { e.msg = "A heater name is 1 to 23 plain letters, numbers or marks, with no quote marks."; e.bad = true; renderParts(); return; }
+    sendPart("heaterName", name, "save", name);
+  } else {
+    const key = text.replace(/\s+/g, "").toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(key)) { e.msg = "A key is 32 letters and numbers: 0 to 9 and a to f. Check it and try again."; e.bad = true; renderParts(); return; }
+    $("pe-input").value = "";  // The key goes to the box only. The phone does not keep it.
+    sendPart("victronKey", PARTS[e.kind].arg + "," + key, "save");
+  }
+}
+
+function removePart() {
+  const e = partEdit; if (!e || e.sent || !partSet(e.kind)) return;
+  if (Date.now() - e.armed >= 4000) { e.armed = Date.now(); e.msg = "Tap Remove again to take it off the box."; e.bad = false; renderParts(); setTimeout(renderParts, 4100); return; }
+  if (e.kind === "heater") sendPart("heaterName", "off", "remove");
+  else sendPart("victronKey", PARTS[e.kind].arg + ",off", "remove");
+}
+
+// First open: the terms. The phone remembers the tap; a new version of the words asks again.
+const TERMS_VERSION = 1;
+function showTerms() { $("terms").hidden = read(".agreed") === TERMS_VERSION; }
+
+let canHeat = false, heatSent = null, startArmed = 0, levelTapAt = 0, levelTimer = null;
+const heaterOn = () => !!(state.heater && state.heater.st === 1);
+
+function renderHeat() {
+  const n = $("ctl-note"), c = state.ctl, go = $("ctl-go"), stop = $("ctl-stop");
+  go.disabled = stop.disabled = !canHeat;
+  go.textContent = Date.now() - startArmed < 4000 ? "Tap again" : c && c.a ? "Update" : heaterOn() ? "Set timer" : "Start";
+  let text, bad = false;
+  if (!canHeat) text = "The unit's program has no heater control.";
+  else if (heatSent && !(c && c.resAt && c.resAt >= heatSent.at - 3000)) {
+    text = Date.now() - heatSent.at > 180000 ? "No answer from the unit yet. Check the signal." : heatSent.what + " sent. The unit answers in about 30 seconds.";
+  } else {
+    if (heatSent) heatSent = null;
+    const fresh = c && c.resAt && Date.now() - c.resAt < 600000 && !PART_RESULTS.includes(c.res) ? resultText(c.res) + " " : "";
+    const wait = c && c.wl ? " Level " + c.wl + " waits until the heater is running." : "";
+    if (c && c.sw) { text = RESULTS["-9"]; bad = true; }
+    else if (wait) text = fresh + wait.trim();
+    else if (c && c.a && c.th && c.tg !== null) text = fresh + (c.idle && c.bw
+        ? "Thermostat: paused, battery under its stop limit. Starts again when the battery comes back."
+        : c.idle ? "Thermostat: warm enough, heater paused. Starts again below " + showC(c.tg - 5 / 3) + "."
+        : "Thermostat: keeps " + showC(c.tg) + ", highest level " + c.mx + ".") + " Ends " + (c.end ? clock(c.end) : "at the set time") + ".";
+    else if (c && c.a) text = fresh + "On the timer. Stops " + (c.end ? clock(c.end) : "at the set time") + ".";
+    else if (heaterOn()) text = fresh + "Started at the heater, no timer. Set timer puts it on one.";
+    else if (c && c.whyAt) text = fresh + "Last run ended " + ago(new Date(c.whyAt).toISOString()) + ": " + (WHYS[c.why] || "code " + c.why) + ".";
+    else text = fresh || "Ready.";
+    bad = bad || (c && c.res < 0 && Date.now() - c.resAt < 600000 && !PART_RESULTS.includes(c.res));
+  }
+  n.textContent = text; n.classList.toggle("flash", !!bad);
+}
+
+async function sendHeat(arg, what) {
+  heatSent = { what, at:Date.now() }; renderHeat();
+  const j = await callUnit("heat", arg);
+  if (!j || j.return_value !== 1) {
+    heatSent = null;
+    const n = $("ctl-note");
+    n.textContent = j && j.return_value === -2 ? "A stop is still going. Try again after it." : "Could not reach the unit. Nothing was sent to the heater.";
+    n.classList.add("flash");
+  }
+}
+
+function tapStart() {
+  if (!canHeat) return;
+  // Two taps, so a pocket tap cannot start the heater.
+  if (Date.now() - startArmed > 4000) { startArmed = Date.now(); renderHeat(); setTimeout(renderHeat, 4100); return; }
+  startArmed = 0;
+  const minutes = Math.round(ctl.hours * 60);
+  if (ctl.by === "temp") {
+    const c10 = Math.min(294, Math.max(44, Math.round((ctl.target - 32) * 50 / 9)));
+    sendHeat("th," + minutes + "," + c10 + "," + ctl.level, "Thermostat");
+    return;
+  }
+  // The level goes with the start only when it differs from the heater's own.
+  const h = state.heater, lvl = h && h.lvl === ctl.level ? "" : "," + ctl.level;
+  sendHeat("on," + minutes + lvl, heaterOn() ? "Timer" : "Start");
+}
+
+// While the heater runs, a level tap goes to the unit after a short pause, so several taps send once.
+// While it is off, the level goes with Start.
+// During a thermostat run, the level is its highest level, and it goes even while paused.
+function tapLevel() {
+  levelTapAt = Date.now();
+  clearTimeout(levelTimer);
+  const c = state.ctl, thermoRun = !!(c && c.a && c.th);
+  if (!canHeat || !(heaterOn() || thermoRun)) return;
+  levelTimer = setTimeout(() => {
+    const h = state.heater;
+    if (thermoRun ? c.mx === ctl.level : h && h.lvl === ctl.level) return;
+    sendHeat("lvl," + ctl.level, (thermoRun ? "Highest level " : "Level ") + ctl.level);
+  }, 1500);
+}
+
+function tapStop() {
+  if (!canHeat) return;
+  startArmed = 0;
+  sendHeat("off", "Stop");
+}
+
+// HISTORY. The unit keeps one record an hour for 7 days and sends them when asked.
+// This phone saves what it receives, so each open only asks for the new hours.
+const HOUR_MS = 3600000, HIST_DAYS = 7, HIST_KEEP_HOURS = 60 * 24, HIST_ASK_GAP_MS = 600000;
+const PLOT_LEFT = 30, PLOT_RIGHT = 4, PLOT_TOP = 3;
+
+function saveHist() {
+  const cut = Math.floor(Date.now() / HOUR_MS) - HIST_KEEP_HOURS;
+  Object.keys(hist).forEach(h => { if (Number(h) < cut) delete hist[h]; });
+  write(".hist", { rows:hist, through:histThrough });
+}
+
+function applyHist(o) {
+  const rows = o.rows.split(";");
+  // An empty hour must not erase what the phone already has.
+  rows.forEach((row, i) => { if (row) hist[o.hist + i] = row; });
+  const last = o.hist + rows.length - 1;
+  // Mark the hours as received only if no event went missing on the way.
+  if (histExpect !== null && o.hist <= histExpect + 1) {
+    histExpect = last + 1;
+    if (o.end) { histThrough = last; histExpect = null; }
+  } else {
+    histExpect = null;
+  }
+  saveHist();
+  renderHistory();
+}
+
+// Asks again for the newest saved hour too, because it may have been only part done.
+function askHistory() {
+  if (!canAskHist || Date.now() - lastHistAsk < HIST_ASK_GAP_MS) return;
+  lastHistAsk = Date.now();
+  histExpect = Math.max(histThrough, Math.floor(Date.now() / HOUR_MS) - (HIST_DAYS * 24 - 1));
+  callUnit("hist", histThrough ? String(histThrough) : "");
+}
+
+function histDays() {
+  const end = new Date(); end.setHours(24, 0, 0, 0);
+  const days = [];
+  for (let i = HIST_DAYS; i > 0; i--) {
+    const a = new Date(end); a.setDate(a.getDate() - i);
+    const b = new Date(end); b.setDate(b.getDate() - i + 1);
+    days.push({ a:a.getTime(), b:b.getTime(), name:i === 1 ? "Today" : a.toLocaleDateString([], { weekday:"short" }) });
+  }
+  return days;
+}
+
+function histRecords(t0, t1) {
+  const num = (s) => s === "" || s === undefined ? null : Number(s);
+  return Object.keys(hist).map(Number).sort((x, y) => x - y).filter(h => h * HOUR_MS >= t0 && h * HOUR_MS < t1).map(h => {
+    const f = hist[h].split(",");
+    return { hour:h, t:h * HOUR_MS, lo:num(f[0]) === null ? null : num(f[0]) / 100, hi:num(f[1]) === null ? null : num(f[1]) / 100, pk:num(f[2]) || 0, wh:(num(f[3]) || 0) * 10, sec:num(f[4]) || 0, st:num(f[5]) || 0, c:num(f[6]),
+      ti:num(f[7]) !== null ? num(f[7]) / 10 : num(f[6]), to:num(f[8]) !== null ? num(f[8]) / 10 : null,
+      // SmartShunt parts, empty for an hour with no shunt reading and in rows from before it was added.
+      soc:num(f[9]) !== null ? num(f[9]) / 10 : null, aOut:num(f[10]) !== null ? num(f[10]) / 100 : null,
+      aIn:num(f[11]) !== null ? num(f[11]) / 100 : null, pkA:num(f[12]) !== null ? num(f[12]) / 10 : null };
+  });
+}
+
+function rollup(recs) {
+  const v = recs.filter(r => r.lo !== null);
+  return {
+    count:recs.length, lo:v.length ? Math.min(...v.map(r => r.lo)) : null, hi:v.length ? Math.max(...v.map(r => r.hi)) : null,
+    wh:recs.reduce((n, r) => n + r.wh, 0), pk:recs.reduce((n, r) => Math.max(n, r.pk), 0),
+    sec:recs.reduce((n, r) => n + r.sec, 0), st:recs.reduce((n, r) => n + r.st, 0),
+  };
+}
+
+const showWh = (wh) => wh >= 1000 ? (wh / 1000).toFixed(1) + "k" : String(wh);
+const showWhLong = (wh) => wh.toLocaleString() + " Wh";
+const heaterLine = (r) => r.sec === 0 && r.st === 0 ? "heater did not run" : "heater " + (r.st === 1 ? "1 start" : r.st + " starts") + ", " + showTime(r.sec);
+const hourName = (t) => new Date(t).toLocaleString([], { weekday:"short", hour:"numeric" });
+const inUnit = (c) => prefs.unit === "C" ? c : c * 9 / 5 + 32;
+
+// Splits records into runs of hours that follow each other, so a gap shows as a gap.
+function runsOf(recs) {
+  const runs = [];
+  recs.forEach((r, i) => { if (i && r.hour === recs[i - 1].hour + 1) runs[runs.length - 1].push(r); else runs.push([r]); });
+  return runs;
+}
+
+function plotFrame(box, withDays, days) {
+  const W = box.width, H = box.height, base = H - (withDays ? 13 : 2);
+  const t0 = days[0].a, t1 = days[days.length - 1].b;
+  const x = (t) => PLOT_LEFT + (t - t0) / (t1 - t0) * (W - PLOT_LEFT - PLOT_RIGHT);
+  let s = `<line class="gl" x1="${PLOT_LEFT}" x2="${W - PLOT_RIGHT}" y1="${base}" y2="${base}"/>`;
+  days.forEach((d, i) => {
+    if (i) s += `<line class="gl" x1="${x(d.a)}" x2="${x(d.a)}" y1="${PLOT_TOP}" y2="${base}"/>`;
+    if (withDays) s += `<text x="${(x(d.a) + x(d.b)) / 2}" y="${H - 2}" text-anchor="middle">${d.name}</text>`;
+  });
+  return { W, H, base, x, s };
+}
+
+function linePlot(f, recs, opts) {
+  const y = (v) => f.base - (v - opts.lo) / (opts.hi - opts.lo) * (f.base - PLOT_TOP);
+  const mid = (r) => f.x(r.t + HOUR_MS / 2);
+  let s = "";
+  opts.ticks.forEach(v => {
+    if (v !== opts.lo) s += `<line class="gl" x1="${PLOT_LEFT}" x2="${f.W - PLOT_RIGHT}" y1="${y(v)}" y2="${y(v)}"/>`;
+    s += `<text x="${PLOT_LEFT - 4}" y="${Math.min(f.H - 1, Math.max(9, y(v) + 3))}" text-anchor="end">${opts.tick(v)}</text>`;
+  });
+  runsOf(recs).forEach(run => {
+    if (run.length === 1) { s += `<circle cx="${mid(run[0])}" cy="${y(opts.low(run[0]))}" r="4" fill="${opts.color}"/>`; return; }
+    if (opts.high) {
+      const up = run.map(r => mid(r) + " " + y(opts.high(r))).join(" L ");
+      const down = run.slice().reverse().map(r => mid(r) + " " + y(opts.low(r))).join(" L ");
+      s += `<path d="M ${up} L ${down} Z" fill="${opts.color}" opacity="0.3"/>`;
+    }
+    s += `<path d="M ${run.map(r => mid(r) + " " + y(opts.low(r))).join(" L ")}" fill="none" stroke="${opts.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  });
+  const sel = recs.find(r => r.hour === histSel);
+  if (sel) s += `<line class="cross" x1="${mid(sel)}" x2="${mid(sel)}" y1="${PLOT_TOP}" y2="${f.base}"/><circle cx="${mid(sel)}" cy="${y(opts.low(sel))}" r="4" fill="${opts.color}" stroke="var(--card)" stroke-width="2"/>`;
+  else if (recs.length) { const r = recs[recs.length - 1]; s += `<circle cx="${mid(r)}" cy="${y(opts.low(r))}" r="4" fill="${opts.color}" stroke="var(--card)" stroke-width="2"/>`; }
+  return s;
+}
+
+function barPlot(f, days, rolls, opts) {
+  const top = Math.max(1, ...rolls.map(opts.value));
+  const room = f.base - PLOT_TOP - 12; // Leaves space for the number above the tallest bar.
+  const selDay = histSel === null ? -1 : days.findIndex(d => histSel * HOUR_MS >= d.a && histSel * HOUR_MS < d.b);
+  let s = "";
+  days.forEach((d, i) => {
+    const r = rolls[i]; if (!r.count) return;
+    const v = opts.value(r); if (!v && !opts.showZero) return;
+    const cell = f.x(d.b) - f.x(d.a), w = Math.min(24, cell * 0.6), bx = f.x(d.a) + (cell - w) / 2;
+    const h = v / top * room, ty = f.base - h, rad = Math.min(4, h, w / 2);
+    const fade = selDay >= 0 && selDay !== i ? ' opacity="0.45"' : "";
+    if (h > 0) s += `<path d="M ${bx} ${f.base} V ${ty + rad} Q ${bx} ${ty} ${bx + rad} ${ty} H ${bx + w - rad} Q ${bx + w} ${ty} ${bx + w} ${ty + rad} V ${f.base} Z" fill="${opts.color}"${fade}/>`;
+    s += `<text class="val" x="${bx + w / 2}" y="${ty - 2}" text-anchor="middle">${opts.label(v)}</text>`;
+  });
+  return s;
+}
+
+const noData = (f, text) => `<text x="${(PLOT_LEFT + f.W) / 2}" y="${(PLOT_TOP + f.base) / 2 + 3}" text-anchor="middle">${text}</text>`;
+
+function renderHistory() {
+  if ($("view-history").hidden) return;
+  const days = histDays(), t0 = days[0].a, t1 = days[days.length - 1].b;
+  const recs = histRecords(t0, t1);
+  if (histSel !== null && !recs.some(r => r.hour === histSel)) histSel = null;
+  const rolls = days.map(d => rollup(recs.filter(r => r.t >= d.a && r.t < d.b)));
+  const today = rolls[rolls.length - 1];
+  const volts = recs.filter(r => r.lo !== null), temps = recs.filter(r => r.ti !== null), outs = recs.filter(r => r.to !== null);
+
+  // The words above the graphs: the whole week, or the time that was tapped.
+  const words = $("hist-read");
+  if (!cfg) words.textContent = "Connect this phone to see history.";
+  else if (!recs.length) words.textContent = canAskHist || !state.device ? "No history yet. The unit saves one record an hour and sends it when the app opens." : "The unit program does not save history yet.";
+  else if (histSel !== null) {
+    const r = recs.find(x => x.hour === histSel), day = rollup(recs.filter(x => { const d = days.find(q => r.t >= q.a && r.t < q.b); return x.t >= d.a && x.t < d.b; }));
+    const v = (x) => x.lo === null ? "no battery reading" : "battery " + x.lo.toFixed(2) + " to " + x.hi.toFixed(2) + " V";
+    words.textContent = hourName(r.t) + ": " + v(r) + ", solar " + showWhLong(r.wh) + ", peak " + r.pk + " W" + (r.ti !== null ? ", inside " + showC(r.ti) : "") + (r.to !== null ? ", outside " + showC(r.to) : "") + ", " + heaterLine(r) + ". That day: " + v(day) + ", solar " + showWhLong(day.wh) + ", peak " + day.pk + " W, " + heaterLine(day) + ".";
+  } else {
+    const all = rollup(recs);
+    const lowest = volts.length ? volts.reduce((a, b) => b.lo < a.lo ? b : a) : null;
+    const since = recs[0].t - t0 > 24 * HOUR_MS ? "Since " + hourName(recs[0].t) : "Last 7 days";
+    words.textContent = since + ": " + (lowest ? "battery lowest " + lowest.lo.toFixed(2) + " V, " + hourName(lowest.t) : "no battery reading") + ". Solar " + showWhLong(all.wh) + ". " + heaterLine(all).replace("heater", "Heater") + ". Tap a graph to read a time.";
+  }
+
+  $("hn-batt").textContent = volts.length ? volts[volts.length - 1].lo.toFixed(2) + " V" : "";
+  $("hn-solar").textContent = recs.length ? "today " + today.wh + " Wh" : "";
+  $("hc-temp").innerHTML = `<span style="color:var(--c-temp)">Inside</span> and <span style="color:var(--c-out)">outside</span>, ${prefs.unit === "C" ? "C" : "F"}`;
+  $("hn-temp").textContent = [temps.length ? showC(temps[temps.length - 1].ti) : "", outs.length ? showC(outs[outs.length - 1].to) : ""].filter(Boolean).join(" / ");
+  $("hn-heat").textContent = recs.length ? "today " + showTime(today.sec) : "";
+
+  const names = ["batt", "solar", "temp", "heat"];
+  const boxes = names.map(n => $("hs-" + n).getBoundingClientRect());
+  const lowestEdge = Math.max(...boxes.map(b => b.bottom));
+  names.forEach((n, i) => {
+    const f = plotFrame(boxes[i], boxes[i].bottom > lowestEdge - 1, days);
+    let body = "";
+    if (n === "batt") {
+      if (volts.length) {
+        const lo = Math.floor((Math.min(...volts.map(r => r.lo)) - 0.1) * 2) / 2;
+        const hi = Math.max(lo + 1, Math.ceil((Math.max(...volts.map(r => r.hi)) + 0.1) * 2) / 2);
+        const ticks = f.base - PLOT_TOP > 70 ? [lo, Math.round(lo + hi) / 2, hi] : [lo, hi];
+        body = linePlot(f, volts, { lo, hi, ticks, tick:v => v.toFixed(1), low:r => r.lo, high:r => r.hi, color:"var(--c-batt)" });
+      } else body = noData(f, "No readings yet");
+    } else if (n === "solar") {
+      body = recs.length ? barPlot(f, days, rolls, { value:r => r.wh, showZero:true, label:showWh, color:"var(--c-solar)" }) : noData(f, "No readings yet");
+    } else if (n === "temp") {
+      if (temps.length || outs.length) {
+        const vals = temps.map(r => inUnit(r.ti)).concat(outs.map(r => inUnit(r.to)));
+        const lo = Math.floor((Math.min(...vals) - 1) / 5) * 5;
+        const hi = Math.max(lo + 10, Math.ceil((Math.max(...vals) + 1) / 5) * 5);
+        body = linePlot(f, temps, { lo, hi, ticks:[lo, hi], tick:String, low:r => inUnit(r.ti), color:"var(--c-temp)" }) +
+          linePlot(f, outs, { lo, hi, ticks:temps.length ? [] : [lo, hi], tick:String, low:r => inUnit(r.to), color:"var(--c-out)" });
+      } else body = noData(f, "No readings yet");
+    } else {
+      body = recs.some(r => r.sec > 0) ? barPlot(f, days, rolls, { value:r => r.sec, showZero:false, label:showTime, color:"var(--c-heat)" }) : noData(f, "No heater runs");
+    }
+    $("hs-" + n).innerHTML = f.s + body;
+  });
+}
+
+// A tap or a drag on any graph picks the hour under the finger.
+function pickHour(e) {
+  const svg = e.target;
+  if (!svg.id || !svg.id.startsWith("hs-")) return;
+  const days = histDays(), t0 = days[0].a, t1 = days[days.length - 1].b, box = svg.getBoundingClientRect();
+  const t = t0 + (e.clientX - box.left - PLOT_LEFT) / (box.width - PLOT_LEFT - PLOT_RIGHT) * (t1 - t0);
+  const recs = histRecords(t0, t1);
+  if (!recs.length) return;
+  histSel = recs.reduce((a, b) => Math.abs(b.t + HOUR_MS / 2 - t) < Math.abs(a.t + HOUR_MS / 2 - t) ? b : a).hour;
+  renderHistory();
+}
+
+// POWER. Copies VictronConnect: pick a device, then Status, History or Trends.
+// The box hears only each device's live broadcast. VictronConnect's own history needs a direct
+// Bluetooth link, so History and Trends here come from the box's hourly records (7 days).
+const pw = { dev:"shunt", tab:"status", day:0, sel:null };
+const fix = (x, n, unit) => typeof x === "number" ? x.toFixed(n) + " " + unit : "--";
+const showAh = (x, out) => typeof x !== "number" ? "--" : (out && x > 0 ? "-" : "") + (x < 9.95 ? x.toFixed(1) : Math.round(x)) + " Ah";
+const showLeft = (m) => typeof m !== "number" ? "--" : m >= 1440 ? Math.floor(m / 1440) + "d " + Math.floor(m % 1440 / 60) + "h" : m >= 60 ? Math.floor(m / 60) + "h " + m % 60 + "m" : m + "m";
+const sumOf = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
+const minOf = (list, k) => { const v = list.map(r => r[k]).filter(x => x !== null); return v.length ? Math.min(...v) : null; };
+const maxOf = (list, k) => { const v = list.map(r => r[k]).filter(x => x !== null); return v.length ? Math.max(...v) : null; };
+const wideLandscape = () => matchMedia("(orientation:landscape) and (max-height:520px)").matches;
+
+function rowsHtml(sections) {
+  return sections.map(([head, rows]) => `<div class="vhead">${head}</div>` + rows.filter(Boolean).map(([k, v, bad]) =>
+    `<div class="vrow"><span>${k}</span><b class="pw-num${bad ? " bad" : ""}">${v}</b></div>`).join("")).join("");
+}
+
+function ageNote(id, x, part) {
+  const old = !!x && isOld(x.at), off = !x && partSet(part) === false;
+  $(id).textContent = off ? NOT_SET : !x ? "No reading yet. The unit has not heard this device." : (old ? "OLD READING: " : "Read ") + ago(x.at) + ".";
+  $(id).classList.toggle("old", old);
+  $(id).parentElement.classList.toggle("stale", old);
+}
+
+// The arc opens at the bottom, like VictronConnect's dial.
+function gaugeArc(frac) {
+  const cx = 60, cy = 54, r = 44, a0 = -130, sweep = 260, f = Math.max(0, Math.min(1, frac || 0));
+  const pt = (deg) => { const a = deg * Math.PI / 180; return (cx + r * Math.sin(a)).toFixed(2) + " " + (cy - r * Math.cos(a)).toFixed(2); };
+  const path = (to) => `M ${pt(a0)} A ${r} ${r} 0 ${to - a0 > 180 ? 1 : 0} 1 ${pt(to)}`;
+  let s = `<path d="${path(a0 + sweep)}" fill="none" stroke="var(--line)" stroke-width="5" stroke-linecap="round"/>`;
+  if (f > 0.003) s += `<path d="${path(a0 + sweep * f)}" fill="none" stroke="var(--text)" stroke-width="5" stroke-linecap="round"/>`;
+  return s;
+}
+
+const weekRecs = () => { const d = histDays(); return histRecords(d[0].a, d[d.length - 1].b); };
+
+function renderPower() {
+  if ($("view-power").hidden) return;
+  setSeg("pw-dev", pw.dev); setSeg("pw-tab", pw.tab);
+  const prot = pw.dev === "protect";
+  $("pw-tab").hidden = prot; // VictronConnect shows the BatteryProtect with no tabs.
+  const pane = prot ? "protect" : pw.tab === "status" ? "status" : pw.tab === "trends" ? "trend" : pw.dev === "shunt" ? "shhist" : "solhist";
+  ["status", "protect", "shhist", "solhist", "trend"].forEach(n => { $("pw-" + n).hidden = n !== pane; });
+  if (pane === "status") renderPwStatus();
+  else if (pane === "protect") renderProtect();
+  else if (pane === "shhist") renderShuntHist();
+  else if (pane === "solhist") renderSolarHist();
+  else renderTrend();
+  sizePane(pane);
+}
+
+// Larger text where the screen has room: each Power screen takes the largest text
+// size that still fits, and keeps a fair share of the height for its dial, picture or graph.
+const within = (e, box) => { const r = e.getBoundingClientRect(); return r.bottom <= box.bottom + 1 && r.right <= box.right + 1; };
+function fitPane(pane, roomOk) {
+  const ok = () => {
+    const box = pane.getBoundingClientRect();
+    return [...pane.querySelectorAll(".vrow, .vt, .tr-sum, .sol-grid > div, .bp-load, .note")].every(e => within(e, box)) &&
+      [...pane.querySelectorAll(".pw-num, .vt > span, .tr-sum span, .sol-grid > div")].every(e => e.scrollWidth <= e.clientWidth) &&
+      roomOk(box);
+  };
+  const set = (k) => pane.style.setProperty("--k", k.toFixed(3));
+  let lo = 1, hi = 2.4;
+  set(hi); if (ok()) return;
+  set(lo); if (!ok()) return;
+  for (let i = 0; i < 7; i++) { const m = (lo + hi) / 2; set(m); if (ok()) lo = m; else hi = m; }
+  // 3 % smaller than the largest fit: a part of a pixel can still cut a word.
+  set(Math.max(1, lo * 0.97));
+}
+
+function sizePane(name) {
+  const pane = $("pw-" + name);
+  if (!pane.getBoundingClientRect().height) return;
+  const share = (id, part) => (box) => $(id).getBoundingClientRect().height >= box.height * part - 1;
+  if (name === "status") {
+    $("g-val").parentElement.style.fontSize = "28px";
+    fitPane(pane, share("g-arc", 0.4));
+    // The number grows with the dial: the dial is drawn 120 wide and 100 high.
+    const g = $("g-arc").getBoundingClientRect(), scale = Math.min(g.width / 120, g.height / 100);
+    $("g-val").parentElement.style.fontSize = Math.round(Math.max(28, Math.min(110, 30 * scale))) + "px";
+  } else if (name === "protect") {
+    $("pp-volts").style.fontSize = "28px";
+    fitPane(pane, (box) => pane.querySelector(".bp-box").getBoundingClientRect().height >= box.height * 0.45 - 1);
+    const b = pane.querySelector(".bp-box").getBoundingClientRect();
+    $("pp-volts").style.fontSize = Math.round(Math.max(28, Math.min(80, b.height * 0.2, b.width / 4.2))) + "px";
+  } else if (name === "shhist") {
+    fitPane(pane, () => { const grid = $("shh-grid").getBoundingClientRect(); return [...$("shh-grid").children].every(e => within(e, grid)); });
+  } else if (name === "solhist") {
+    fitPane(pane, (box) => { const grid = $("sol-grid"), bar = grid.querySelector(".bar"), last = grid.lastElementChild;
+      return !!bar && bar.getBoundingClientRect().height >= box.height * 0.38 - 1 && within(last, grid.getBoundingClientRect()); });
+  } else {
+    fitPane(pane, share("tr-plot", 0.55));
+    // The graph was drawn before the text grew, so draw it again at its new size.
+    const days = histDays(), d = days[days.length - 1 - pw.day];
+    trendPlot($("tr-svg"), d, histRecords(d.a, d.b), pw.dev === "shunt");
+  }
+}
+
+function renderPwStatus() {
+  if (pw.dev === "shunt") {
+    const s = state.shunt, has = (k) => s && typeof s[k] === "number";
+    $("g-label").textContent = "State of charge"; $("g-unit").textContent = "%";
+    // Whole percent, rounded down, so it never shows 100 before it is full.
+    $("g-val").textContent = has("soc") ? String(Math.floor(s.soc)) : "--";
+    $("g-arc").innerHTML = gaugeArc(has("soc") ? s.soc / 100 : 0);
+    $("pw-rows").innerHTML = rowsHtml([["Battery", [
+      ["Voltage", fix(s && s.volts, 2, "V")], ["Current", fix(s && s.amps, 2, "A")],
+      ["Power", has("volts") && has("amps") ? Math.round(s.volts * s.amps) + " W" : "--"],
+      ["Consumed Ah", has("used") ? (s.used > 0 ? "-" : "") + s.used.toFixed(1) + " Ah" : "--"],
+      ["Time remaining", showLeft(s && s.min)],
+      s && s.al ? ["Alarm", bitWords(s.al, ALARMS), true] : null]]]);
+    ageNote("pw-age", s, "shunt");
+    return;
+  }
+  const v = state.victron;
+  // The dial is full at the best solar of the last 7 days.
+  const best = Math.max(1, v ? v.watts || 0 : 0, maxOf(weekRecs(), "pk") || 0);
+  $("g-label").textContent = "Solar"; $("g-unit").textContent = "W";
+  $("g-val").textContent = v && typeof v.watts === "number" ? String(v.watts) : "--";
+  $("g-arc").innerHTML = gaugeArc(v ? (v.watts || 0) / best : 0);
+  $("pw-rows").innerHTML = rowsHtml([
+    ["Battery", [["Voltage", fix(v && v.volts, 2, "V")], ["Current", fix(v && v.amps, 1, "A")], ["State", v ? STATES[v.mode] || "Code " + v.mode : "--"]]],
+    ["Today", [["Yield", v ? v.wh + " Wh" : "--"], ["Error", !v ? "--" : v.err ? "Code " + v.err : "None", !!(v && v.err)]]]]);
+  ageNote("pw-age", v, "solar");
+}
+
+function renderProtect() {
+  const p = state.protect;
+  $("pp-volts").textContent = fix(p && p.inV, 2, "V");
+  const out = $("pp-out");
+  out.textContent = p && p.out !== null ? BP_OUT[p.out] || "Code " + p.out : "--";
+  out.classList.toggle("on", !!p && p.out === 1); out.classList.toggle("off", !!p && p.out !== null && p.out !== 1);
+  $("pp-rows").innerHTML = rowsHtml([["Status", [
+    ["Load output state", !p || p.st === null ? "--" : BP_STATE[p.st] || "Code " + p.st],
+    ["Output voltage", fix(p && p.outV, 2, "V")],
+    p && p.off ? ["Off because", bitWords(p.off, OFF_WHY), true] : null,
+    p && p.al ? ["Alarm", bitWords(p.al, ALARMS), true] : null,
+    p && p.wn ? ["Warning", bitWords(p.wn, ALARMS), true] : null,
+    p && p.err ? ["Error", "Code " + p.err, true] : null]]]);
+  ageNote("pp-age", p, "protect");
+}
+
+// One day of shunt hours, or null if the shunt was not heard that day.
+function shuntRoll(recs) {
+  const s = recs.filter(r => r.aOut !== null);
+  return s.length ? { out:sumOf(s, "aOut"), in:sumOf(s, "aIn"), soc:minOf(s, "soc"), pkA:maxOf(s, "pkA"), first:s[0].t } : null;
+}
+
+function renderShuntHist() {
+  const days = histDays(), recs = histRecords(days[0].a, days[days.length - 1].b);
+  const per = days.map(d => shuntRoll(recs.filter(r => r.t >= d.a && r.t < d.b))), have = per.filter(Boolean);
+  const today = per[per.length - 1], done = per.slice(0, -1).filter(Boolean), volts = recs.filter(r => r.lo !== null);
+  const tile = (k, v) => `<div class="vt"><span>${k}</span><b class="pw-num">${v}</b></div>`;
+  const sec = (head, tiles) => `<div class="vsec"><div class="vhead">${head}</div><div class="vtiles">${tiles.join("")}</div></div>`;
+  const lowSoc = minOf(have, "soc"), pk = maxOf(have, "pkA");
+  $("shh-grid").innerHTML =
+    sec("Discharge", [tile("Drawn today", showAh(today && today.out, true)), tile("Average a day", done.length ? showAh(sumOf(done, "out") / done.length, true) : "--"),
+      tile("Most in a day", have.length ? showAh(Math.max(...have.map(d => d.out)), true) : "--"), tile("Drawn in 7 days", have.length ? showAh(sumOf(have, "out"), true) : "--")]) +
+    sec("Charge", [tile("Charged today", showAh(today && today.in)), tile("Charged in 7 days", have.length ? showAh(sumOf(have, "in")) : "--")]) +
+    sec("Battery", [tile("Lowest charge", fix(lowSoc, 1, "%")), tile("Peak draw", fix(pk, 1, "A")),
+      tile("Min battery voltage", fix(minOf(volts, "lo"), 2, "V")), tile("Max battery voltage", fix(maxOf(volts, "hi"), 2, "V"))]);
+  const first = have.length ? Math.min(...have.map(d => d.first)) : null;
+  $("shh-note").textContent = !cfg ? "Connect this phone to see history." : !have.length ? "No battery monitor hours yet. The box saves one record an hour." :
+    (first - days[0].a > 24 * HOUR_MS ? "Since " + hourName(first) : "Last 7 days") + ", from the box's hourly records. Charge cycles, synchronisations and full discharges come only from VictronConnect.";
+}
+
+function renderSolarHist() {
+  const days = histDays().reverse(), recs = histRecords(days[days.length - 1].a, days[0].b); // Today first, like VictronConnect.
+  const rolls = days.map(d => rollup(recs.filter(r => r.t >= d.a && r.t < d.b)));
+  const top = Math.max(1, ...rolls.map(r => r.wh));
+  const cell = (i, text, cls) => `<div class="${(cls || "") + (i % 2 ? "" : " shade")}">${text}</div>`;
+  let s = `<div class="rl"></div>` + days.map((d, i) => cell(i, d.name, "dname")).join("");
+  s += `<div class="rl"></div>` + rolls.map((r, i) => { const f = (r.wh / top).toFixed(3);
+    return cell(i, r.count ? `<i style="height:calc((100% - 14px) * ${f})"></i><em style="bottom:calc((100% - 14px) * ${f} + 1px)">${showWh(r.wh)}</em>` : "", "bar"); }).join("");
+  [["Yield Wh", r => showWh(r.wh)], ["Peak W", r => String(r.pk)], ["Batt max", r => r.hi === null ? "--" : r.hi.toFixed(2)], ["Batt min", r => r.lo === null ? "--" : r.lo.toFixed(2)]]
+    .forEach(([k, fn]) => { s += `<div class="rl">${k}</div>` + rolls.map((r, i) => cell(i, r.count ? fn(r) : "")).join(""); });
+  $("sol-grid").innerHTML = s;
+  const all = rollup(recs);
+  $("sol-note").textContent = !cfg ? "Connect this phone to see history." : !recs.length ? "No history yet. The box saves one record an hour." :
+    "7 days: " + showWhLong(all.wh) + ". Panel volts, time in bulk, absorption and float, and the lifetime total come only from VictronConnect.";
+}
+
+function renderTrend() {
+  const days = histDays(), d = days[days.length - 1 - pw.day], shunt = pw.dev === "shunt";
+  $("tr-prev").disabled = pw.day >= days.length - 1; $("tr-next").disabled = pw.day <= 0;
+  const recs = histRecords(d.a, d.b);
+  if (pw.sel !== null && !recs.some(r => r.hour === pw.sel)) pw.sel = null;
+  const sel = recs.find(r => r.hour === pw.sel), use = sel ? [sel] : recs;
+  $("tr-date").textContent = new Date(d.a).toLocaleDateString([], wideLandscape() ? { weekday:"short", month:"short", day:"numeric" } : { weekday:"long", month:"long", day:"numeric" }) +
+    (sel ? ", " + new Date(sel.t).toLocaleTimeString([], { hour:"numeric" }) : "");
+  const sh = use.filter(r => r.aOut !== null);
+  const items = shunt
+    ? [["From battery", sh.length ? showAh(sumOf(sh, "aOut"), true) : "--"], ["To battery", sh.length ? showAh(sumOf(sh, "aIn")) : "--"], [sel ? "Lowest SOC" : "SOC lowest", fix(minOf(sh, "soc"), 1, "%")]]
+    : [["Yield", use.length ? showWhLong(sumOf(use, "wh")) : "--"], ["Peak power", use.length ? maxOf(use, "pk") + " W" : "--"], ["Battery low", fix(minOf(use, "lo"), 2, "V")]];
+  $("tr-sum").innerHTML = items.map(([k, v]) => `<div><span>${k}</span><b class="pw-num">${v}</b></div>`).join("");
+  $("tr-sum").classList.toggle("sel", !!sel);
+  const key = (c) => `<i style="background:${c}"></i>`;
+  $("tr-legend").innerHTML = shunt ? `<span>Ah${key("var(--c-solar)")} in ${key("var(--bad)")} out</span><span>charge %${key("var(--c-batt)")}</span>`
+    : `<span>Wh${key("var(--c-solar)")}</span><span>battery V, low to high${key("var(--bad)")}</span>`;
+  trendPlot($("tr-svg"), d, recs, shunt);
+}
+
+// VictronConnect's day graph: one bar an hour, a line on the right-hand scale.
+function trendPlot(svg, d, recs, shunt) {
+  const box = svg.getBoundingClientRect(), W = box.width, H = box.height;
+  if (!W || !H) return;
+  const L = 34, R = 34, T = 6, B = H - 14;
+  const x = (t) => L + (t - d.a) / (d.b - d.a) * (W - L - R);
+  const at = (h) => { const t = new Date(d.a); t.setHours(h, 0, 0, 0); return t.getTime(); };
+  const nice = (v) => { const p = Math.pow(10, Math.floor(Math.log10(v))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(m => m >= v); };
+  const sh = recs.filter(r => r.aOut !== null);
+  if (!recs.length || (shunt && !sh.length)) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">${!cfg ? "Connect this phone to see history." : shunt ? "No battery monitor hours this day" : "No records this day"}</text>`;
+    return;
+  }
+  // Five lines shared by both scales.
+  let lo, hi, rlo, rhi;
+  if (shunt) { hi = 2 * nice(Math.max(0.1, ...sh.map(r => Math.max(r.aOut, r.aIn || 0))) * 1.05 / 2); lo = -hi; rlo = 0; rhi = 100; }
+  else {
+    lo = 0; hi = 4 * nice(Math.max(10, ...recs.map(r => r.wh)) * 1.05 / 4);
+    const vs = recs.filter(r => r.lo !== null), vMin = minOf(vs, "lo"), vMax = maxOf(vs, "hi");
+    const step = vMin === null ? 0.5 : [0.25, 0.5, 1, 2].find(st => Math.floor(vMin / st) * st + 4 * st >= vMax) || 2;
+    rlo = vMin === null ? 12 : Math.floor(vMin / step) * step; rhi = rlo + 4 * step;
+  }
+  const y = (v) => B - (v - lo) / (hi - lo) * (B - T), y2 = (v) => B - (v - rlo) / (rhi - rlo) * (B - T);
+  const tl = (v) => Math.abs(v) < 10 && v % 1 ? v.toFixed(Math.abs(v) < 1 ? 2 : 1) : String(Math.round(v));
+  let s = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + (hi - lo) * i / 4, v2 = rlo + (rhi - rlo) * i / 4, yy = y(v);
+    s += `<line class="gl" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 4}" y="${Math.max(9, yy + 3)}" text-anchor="end">${tl(v)}</text><text class="r" x="${W - R + 4}" y="${Math.max(9, yy + 3)}">${shunt ? Math.round(v2) : v2.toFixed(rhi - rlo < 4 ? 2 : 1)}</text>`;
+  }
+  for (let h = 0; h <= 24; h += 3) {
+    const xx = x(at(h));
+    s += `<line class="gl" x1="${xx}" x2="${xx}" y1="${B}" y2="${B + 3}"/>`;
+    if (h % 6 === 0) s += `<text x="${Math.min(W - R, Math.max(L, xx))}" y="${H - 2}" text-anchor="${h === 0 ? "start" : h === 24 ? "end" : "middle"}">${String(h % 24).padStart(2, "0")}:00</text>`;
+  }
+  const bar = (r, v, color) => { const x0 = x(r.t), w = (x(r.t + HOUR_MS) - x0) * 0.7, y0 = y(0), y1 = y(v);
+    return `<rect x="${x0 + w * 0.2}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.max(0.5, Math.abs(y1 - y0))}" fill="${color}"${sel(r)}/>`; };
+  const sel = (r) => pw.sel !== null && pw.sel !== r.hour ? ' opacity="0.45"' : "";
+  const mid = (r) => x(r.t + HOUR_MS / 2);
+  const line = (list, val, color) => runsOf(list).map(run => (run.length > 1 ? `<path d="M ${run.map(r => mid(r) + " " + y2(val(r))).join(" L ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>` : "") +
+    run.map(r => `<circle cx="${mid(r)}" cy="${y2(val(r))}" r="2.500" fill="${color}"/>`).join("")).join("");
+  if (shunt) {
+    sh.forEach(r => { if (r.aIn > 0) s += bar(r, r.aIn, "var(--c-solar)"); if (r.aOut > 0) s += bar(r, -r.aOut, "var(--bad)"); });
+    s += line(sh.filter(r => r.soc !== null), r => r.soc, "var(--c-batt)");
+  } else {
+    recs.forEach(r => { if (r.wh > 0) s += bar(r, r.wh, "var(--c-solar)"); });
+    // Battery low to high in each hour as a light band, the low as the line.
+    const vr = recs.filter(r => r.lo !== null);
+    runsOf(vr).forEach(run => { if (run.length > 1) s += `<path d="M ${run.map(r => mid(r) + " " + y2(r.hi)).join(" L ")} L ${run.slice().reverse().map(r => mid(r) + " " + y2(r.lo)).join(" L ")} Z" fill="var(--bad)" opacity="0.25"/>`; });
+    s += line(vr, r => r.lo, "var(--bad)");
+  }
+  const picked = recs.find(r => r.hour === pw.sel);
+  if (picked) s += `<line class="cross" x1="${mid(picked)}" x2="${mid(picked)}" y1="${T}" y2="${B}"/>`;
+  svg.innerHTML = s;
+}
+
+// A tap on the day graph reads that hour in the box above it. A tap on the box goes back to the whole day.
+function pickTrendHour(e) {
+  const days = histDays(), d = days[days.length - 1 - pw.day], box = $("tr-svg").getBoundingClientRect();
+  const t = d.a + (e.clientX - box.left - 34) / (box.width - 68) * (d.b - d.a);
+  const recs = histRecords(d.a, d.b).filter(r => pw.dev !== "shunt" || r.aOut !== null);
+  if (!recs.length) return;
+  pw.sel = recs.reduce((a, b) => Math.abs(b.t + HOUR_MS / 2 - t) < Math.abs(a.t + HOUR_MS / 2 - t) ? b : a).hour;
+  renderPower();
+}
+
+function setConn(text, kind) { const el = $("conn"); el.textContent = text; el.className = "pill " + kind; }
+
+function show(name) {
+  ["home", "heater", "power", "history", "place", "setup", "parts"].forEach(n => { $("view-" + n).hidden = n !== name; });
+  ["home", "heater", "power", "history", "setup"].forEach(n => { $("nav-" + n).classList.toggle("on", n === name || (n === "home" && name === "place") || (n === "setup" && name === "parts")); });
+  $("banner").hidden = !!cfg || name === "setup" || name === "parts";
+  if (name !== "parts") partEdit = null;
+  if (name !== "history") histSel = null;
+  render();
+  if ((name === "history" || name === "power") && cfg) askHistory();
+  window.scrollTo(0, 0);
+}
+
+async function fetchDevice() {
+  const r = await fetch(`${API}/products/${cfg.product}/devices/${cfg.device}`, { headers:{ Authorization:"Bearer " + cfg.key } });
+  if (r.status === 401 || r.status === 403) throw Object.assign(new Error("key"), { auth:true });
+  if (!r.ok) throw new Error("device " + r.status);
+  const j = await r.json();
+  state.device = { online: !!j.online, lastHeard: j.last_heard };
+  canAskLocation = Array.isArray(j.functions) && j.functions.includes("cmd");
+  canSayOpen = Array.isArray(j.functions) && j.functions.includes("appOpen");
+  canAskHist = Array.isArray(j.functions) && j.functions.includes("hist");
+  canHeat = Array.isArray(j.functions) && j.functions.includes("heat");
+  $("probe-card").hidden = !(Array.isArray(j.functions) && j.functions.includes("probeSwap"));
+  render();
+}
+
+async function callUnit(name, arg) {
+  try {
+    const res = await fetch(`${API}/products/${cfg.product}/devices/${cfg.device}/${name}`, {
+      method:"POST",
+      headers:{ Authorization:"Bearer " + cfg.key, "Content-Type":"application/json" },
+      body:JSON.stringify({ arg }),
+    });
+    return await res.json();
+  } catch { return null; }
+}
+
+// Ask the unit for a fresh position when the app opens, at most once in 10 minutes.
+function askLocation() {
+  if (!canAskLocation || Date.now() - lastAsk < 600000) return;
+  lastAsk = Date.now();
+  callUnit("cmd", JSON.stringify({ cmd:"get_loc" }));
+}
+
+// Tell the unit the page is open. It reports every 30 seconds for 5 minutes after each call,
+// then drops back to hourly by itself, so a lost phone signal is safe.
+function sayOpen() {
+  if (canSayOpen && cfg && !document.hidden) callUnit("appOpen", "phone");
+}
+
+function handleEvent(raw) {
+  let outer; try { outer = JSON.parse(raw); } catch { return; }
+  if (!outer || typeof outer.data !== "string") return;
+  let inner; try { inner = JSON.parse(outer.data); } catch { return; }
+  const at = outer.published_at || new Date().toISOString();
+  state.device = { online:true, lastHeard:at }; // A report just arrived, so the unit is on line.
+  if (inner && typeof inner.hist === "number" && typeof inner.rows === "string") { applyHist(inner); return; }
+  applyReport(inner, at);
+}
+
+async function runStream() {
+  clearTimeout(retryTimer);
+  if (abort) abort.abort();
+  abort = new AbortController();
+  const signal = abort.signal;
+  try {
+    await fetchDevice();
+    const r = await fetch(`${API}/products/${cfg.product}/devices/${cfg.device}/events`, { headers:{ Authorization:"Bearer " + cfg.key, Accept:"text/event-stream" }, signal });
+    if (r.status === 401 || r.status === 403) throw Object.assign(new Error("key"), { auth:true });
+    if (!r.ok || !r.body) throw new Error("stream " + r.status);
+    setConn("Live", "ok");
+    retryMs = 5000;
+    sayOpen();
+    askLocation();
+    askHistory();
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).replace(/\r$/, "");
+        buf = buf.slice(i + 1);
+        if (line.startsWith("data:")) handleEvent(line.slice(5).trim());
+      }
+    }
+    throw new Error("stream ended");
+  } catch (e) {
+    if (signal.aborted) return;
+    if (e.auth) { setConn("Key refused", "bad"); $("heard").textContent = "The cloud refused the key."; return; }
+    setConn("Reconnecting", "warn");
+    retryTimer = setTimeout(runStream, retryMs);
+    retryMs = Math.min(retryMs * 2, 60000);
+  }
+}
+
+function start() {
+  $("setup").hidden = true; $("connected").hidden = false;
+  state.unit = read(".unit"); state.victron = read(".victron"); state.loc = read(".loc"); state.heater = read(".heater"); state.pin = read(".pin"); state.pout = read(".pout"); state.shunt = read(".shunt"); state.protect = read(".protect"); state.lim = read(".lim"); if (!(state.lim && typeof state.lim.stopV === "number")) state.lim = null; state.device = null; state.fast = false;
+  state.parts = read(".parts"); if (!(state.parts && typeof state.parts.keyset === "number")) state.parts = null; state.near = [];
+  const savedHist = read(".hist");
+  hist = savedHist && savedHist.rows ? savedHist.rows : {}; histThrough = savedHist && savedHist.through ? savedHist.through : 0;
+  setConn("Connecting", "muted");
+  show("home");
+  runStream();
+}
+
+function showSample() {
+  $("setup").hidden = false; $("connected").hidden = true;
+  setConn("Sample", "muted");
+  $("heard").textContent = "Not connected";
+  applyReport(SAMPLE.report, SAMPLE.at);
+  $("v-age").textContent = "Sample reading. Solar charger Bulk. No errors."; $("v-age").classList.remove("old");
+  $("victron-card").classList.remove("stale");
+  $("u-line").textContent = "unit battery 100 %, no DC power";
+  show("home");
+  $("v-age").textContent = "Sample reading. Solar charger Bulk. No errors."; $("v-age").classList.remove("old");
+  $("victron-card").classList.remove("stale");
+  $("u-line").textContent = "unit battery 100 %, no DC power";
+}
+
+["home", "heater", "power", "history", "setup"].forEach(n => $("nav-" + n).addEventListener("click", () => show(n)));
+document.querySelectorAll(".step").forEach(el => el.addEventListener("click", (e) => {
+  const d = Number(e.target.dataset.d); if (!d) return;
+  const s = STEPPERS[el.dataset.s];
+  s.set(Math.min(s.max, Math.max(s.min, Math.round((s.get() + d * s.step()) * 10) / 10)));
+  if (el.dataset.s === "level" && el.closest("#ctl-run")) tapLevel();
+  else if (el.closest("#ctl-run")) levelTapAt = Date.now();
+  render();
+}));
+const onSeg = (id, fn) => $(id).addEventListener("click", (e) => { if (e.target.dataset.v) { fn(e.target.dataset.v); render(); } });
+onSeg("ctl-mode", v => { ctl.mode = v; });
+onSeg("ctl-by", v => { ctl.by = v; levelTapAt = Date.now(); });
+onSeg("set-unit", v => { prefs.unit = v; write(".prefs", prefs); });
+onSeg("pw-dev", v => { pw.dev = v; pw.sel = null; });
+onSeg("pw-tab", v => { pw.tab = v; pw.sel = null; });
+$("tr-prev").addEventListener("click", () => { pw.day = Math.min(HIST_DAYS - 1, pw.day + 1); pw.sel = null; renderPower(); });
+$("tr-next").addEventListener("click", () => { pw.day = Math.max(0, pw.day - 1); pw.sel = null; renderPower(); });
+$("tr-sum").addEventListener("click", () => { pw.sel = null; renderPower(); });
+$("tr-svg").addEventListener("pointerdown", pickTrendHour);
+$("tr-svg").addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType === "mouse") pickTrendHour(e); });
+new ResizeObserver(renderPower).observe($("pw-card"));
+$("p-arrive").value = localInput(nextNine());
+$("p-arrive").addEventListener("input", render);
+$("ctl-go").addEventListener("click", tapStart);
+$("ctl-stop").addEventListener("click", tapStop);
+$("lim-send").addEventListener("click", sendLim);
+$("parts-open").addEventListener("click", () => { partEdit = null; show("parts"); });
+document.querySelectorAll("#parts-list [data-part]").forEach(b => b.addEventListener("click", () => openPart(b.dataset.part)));
+$("pe-back").addEventListener("click", () => { partEdit = null; renderParts(); });
+$("pe-save").addEventListener("click", savePart);
+$("pe-remove").addEventListener("click", removePart);
+$("pe-near").addEventListener("click", (ev) => { const n = ev.target.dataset && ev.target.dataset.name; if (n) { $("pe-input").value = n; if (partEdit) { partEdit.msg = "Tap Save to use " + n + "."; partEdit.bad = false; renderParts(); } } });
+$("terms-ok").addEventListener("click", () => { write(".agreed", TERMS_VERSION); showTerms(); });
+$("hist-charts").addEventListener("pointerdown", pickHour);
+$("hist-charts").addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType === "mouse") pickHour(e); });
+$("probe-swap").addEventListener("click", async () => {
+  const word = $("probe-word");
+  word.textContent = "Swapping...";
+  const answer = await callUnit("probeSwap", "phone");
+  word.textContent = !answer || typeof answer.return_value !== "number" ? "No answer. Try again." : answer.return_value === 1 ? "Swapped. Check Home." : "Needs both probes connected.";
+});
+$("hist-read").addEventListener("click", () => { histSel = null; renderHistory(); });
+new ResizeObserver(renderHistory).observe($("hist-charts"));
+const openPlace = () => { show("place"); if (cfg) askLocation(); };
+$("place-row").addEventListener("click", openPlace);
+$("m-box").addEventListener("click", openPlace);
+$("heater-card").addEventListener("click", () => show("heater"));
+$("victron-card").addEventListener("click", () => { pw.dev = state.shunt ? "shunt" : "solar"; pw.tab = "status"; pw.sel = null; show("power"); });
+$("set-home").addEventListener("click", () => {
+  if (!state.loc || !state.loc.lck) return;
+  home = { lat:state.loc.lat, lon:state.loc.lon };
+  write(".home", home);
+  render();
+});
+$("setup").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const c = parseSetup($("code").value);
+  if (!c) { $("setup-err").textContent = "That setup code does not look right."; return; }
+  $("code").value = ""; $("setup-err").textContent = "";
+  cfg = c; write(".cfg", c); start();
+});
+$("forget").addEventListener("click", () => {
+  if (abort) abort.abort();
+  clearTimeout(retryTimer);
+  [".cfg", ".unit", ".victron", ".heater", ".loc", ".home", ".prefs", ".hist", ".pin", ".pout", ".shunt", ".protect", ".lim", ".parts"].forEach(wipe);
+  location.reload();
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && cfg) runStream(); });
+setInterval(() => { if (cfg) render(); }, 15000);
+setInterval(sayOpen, 180000);
+
+// One tap setup link: the part after # never goes to the web host.
+function takeSetupLink() {
+  const hash = /^#setup=(.+)$/.exec(location.hash);
+  if (!hash) return false;
+  const c = parseSetup(decodeURIComponent(hash[1]));
+  history.replaceState(null, "", location.pathname + location.search);
+  if (c) write(".cfg", c);
+  return !!c;
+}
+window.addEventListener("hashchange", () => { if (takeSetupLink()) { cfg = read(".cfg"); start(); } });
+takeSetupLink();
+showTerms();
+cfg = read(".cfg");
+home = read(".home");
+if (cfg && cfg.key) start(); else showSample();
+</script>
+</body>
+</html>
