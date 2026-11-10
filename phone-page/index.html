@@ -102,6 +102,9 @@ a { color:inherit; font-weight:600; }
 .btn:disabled { opacity:.4; }
 #lim-note { margin:0; flex:1; min-width:0; }
 #lim-note.flash { color:var(--bad); }
+#l-guard.flash { color:var(--bad); font-weight:600; }
+.place-btns { display:flex; gap:8px; margin-top:10px; }
+.place-btns .btn { flex:1; }
 #lim-send { flex:none; min-height:36px; }
 /* Parts on the box (from Settings). */
 #parts-sum { flex:1; min-width:0; }
@@ -264,13 +267,16 @@ a { color:inherit; font-weight:600; }
   #ctl-plan .ctl-row:first-child { grid-column:1 / -1; justify-content:flex-start; gap:12px; }
   .seg button { min-height:24px; }
   .actions .btn { min-height:32px; }
+  .place-btns { margin-top:4px; }
+  .place-btns .btn { min-height:32px; }
   .preview { margin-bottom:4px; }
   #ctl-sum { margin:2px 0 4px; font-size:12px; }
   .hist-read { min-height:2.6em; margin-bottom:4px; }
   .hist-charts { grid-template-columns:1fr 1fr; grid-template-rows:repeat(2, minmax(0, 1fr)); gap:6px 14px; }
-  #place-card { display:grid !important; grid-template-columns:1fr 1fr; grid-template-rows:repeat(7, min-content) minmax(0, 1fr); column-gap:12px; }
+  #place-card { display:grid !important; grid-template-columns:1fr 1fr; grid-template-rows:repeat(7, min-content) minmax(0, 1fr) min-content; column-gap:12px; }
   #place-card > * { grid-column:1; }
-  #place-card > .map { grid-column:2; grid-row:1 / -1; margin:0; min-height:0; }
+  #place-card > .map { grid-column:2; grid-row:1 / -2; margin:0; min-height:0; }
+  #place-card > .place-btns { grid-column:1 / -1; grid-row:-2 / -1; }
   .note { margin-top:4px; }
   .pw-head { flex-direction:row; align-items:center; gap:12px; }
   .pw-head > * { flex:1; }
@@ -448,7 +454,11 @@ a { color:inherit; font-weight:600; }
       <p class="note" id="l-coords" hidden></p>
       <p class="note"><a id="l-map" href="#" target="_blank" rel="noopener" hidden>Open in Google Maps</a></p>
       <p class="note" id="l-home">Home spot not set.</p>
-      <button id="set-home" class="btn gap" type="button" hidden>Make this the home spot</button>
+      <p class="note" id="l-guard" hidden></p>
+      <div class="place-btns">
+        <button id="set-home" class="btn" type="button" hidden>Make this the home spot</button>
+        <button id="tow" class="btn" type="button" hidden>I'm towing</button>
+      </div>
     </section>
   </div>
 
@@ -556,7 +566,7 @@ function networkName(code) {
   return hit || "Network " + code.slice(0, 3) + "-" + code.slice(3);
 }
 const state = { unit:null, victron:null, heater:null, device:null, loc:null, fast:false, pin:null, pout:null, ctl:null };
-let cfg = null, abort = null, retryMs = 5000, retryTimer = null, canAskLocation = false, canSayOpen = false, lastAsk = 0, home = null, canAskHist = false, lastHistAsk = 0, histThrough = 0, histExpect = null, histSel = null, hist = {};
+let cfg = null, abort = null, retryMs = 5000, retryTimer = null, canAskLocation = false, canSayOpen = false, lastAsk = 0, home = null, canAskHist = false, canGuard = false, towArmed = 0, towSent = null, lastHistAsk = 0, histThrough = 0, histExpect = null, histSel = null, hist = {};
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(STORE + k)); } catch { return null; } };
 const write = (k, v) => { try { localStorage.setItem(STORE + k, JSON.stringify(v)); } catch {} };
@@ -672,7 +682,11 @@ function applyReport(r, at) {
     if (typeof pr.out === "number") state.pout = { c:pr.out / 100, at:before(pr.oa) };
   }
   if (typeof r.f === "number") state.fast = r.f === 1;
-  if (cfg) { write(".unit", state.unit); write(".victron", state.victron); write(".heater", state.heater); write(".loc", state.loc); write(".pin", state.pin); write(".pout", state.pout); write(".shunt", state.shunt); write(".protect", state.protect); write(".lim", state.lim); write(".parts", state.parts); }
+  // Movement guard on the box (program 102 and later). The box keeps the guard spot; no position here.
+  const g = r.gd;
+  if (g && typeof g === "object" && typeof g.m === "number")
+    state.guard = { m:g.m, st:typeof g.st === "number" ? g.st : null, d:typeof g.d === "number" ? g.d : null, fw:g.fw === 1, q:g.q || 0, at };
+  if (cfg) { write(".unit", state.unit); write(".victron", state.victron); write(".heater", state.heater); write(".loc", state.loc); write(".pin", state.pin); write(".pout", state.pout); write(".shunt", state.shunt); write(".protect", state.protect); write(".lim", state.lim); write(".parts", state.parts); write(".guard", state.guard); }
   render();
 }
 
@@ -687,6 +701,31 @@ function showTime(seconds) {
   const m = Math.round(seconds / 60);
   if (m < 60) return m + " min";
   return Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " m" : "");
+}
+
+// The box guards where the trailer has stood still 30 minutes and emails if it moves 100 m.
+function guardWords(g) {
+  const parts = [];
+  if (g.m === 1) parts.push("Guarding." + (g.d != null ? " " + g.d + " m from where it is parked." : ""));
+  else if (g.m === 2) parts.push("Towing: no alerts until it is parked 30 minutes.");
+  else parts.push("Guard starts after 30 minutes still" + (g.st != null ? " (" + Math.floor(g.st / 60) + " min so far)." : ", with a GPS fix."));
+  if (g.fw) parts.push("MOVED alert sent. Following: a position every 2 minutes.");
+  if (g.q) parts.push(g.q === 1 ? "1 alert waiting to send." : g.q + " alerts waiting to send.");
+  return parts.join(" ");
+}
+
+function renderGuard() {
+  const g = state.guard, note = $("l-guard"), tow = $("tow");
+  tow.hidden = !(cfg && canGuard);
+  tow.textContent = Date.now() - towArmed < 4000 ? "Tap again" : "I'm towing";
+  if (towSent && g && g.m === 2 && new Date(g.at).getTime() >= towSent.at - 3000) towSent = null;
+  let text = "", bad = false;
+  if (towSent && towSent.failed) { text = "Could not reach the unit. The guard is still on."; bad = true; }
+  else if (towSent) text = Date.now() - towSent.at > 180000 ? "No answer from the unit yet. Check the signal." : "Sent. The unit answers in about 30 seconds.";
+  else if (g) text = (isOld(g.at) ? "OLD: " : "") + guardWords(g);
+  note.hidden = !text;
+  note.textContent = text;
+  note.classList.toggle("flash", bad || !!(g && g.fw && !towSent));
 }
 
 function placeWord(l) {
@@ -801,6 +840,7 @@ function render() {
     $("l-val").textContent = "Not reported yet";
   }
   $("l-home").textContent = !home ? "Home spot not set." : (l && l.lck ? Math.round(metersBetween(home, l)) + " m from the home spot. The limit is " + MOVED_M + " m." : "Home spot is set.");
+  renderGuard();
 
   renderCtl();
   renderParts();
@@ -1586,6 +1626,7 @@ async function fetchDevice() {
   canSayOpen = Array.isArray(j.functions) && j.functions.includes("appOpen");
   canAskHist = Array.isArray(j.functions) && j.functions.includes("hist");
   canHeat = Array.isArray(j.functions) && j.functions.includes("heat");
+  canGuard = Array.isArray(j.functions) && j.functions.includes("guard");
   $("probe-card").hidden = !(Array.isArray(j.functions) && j.functions.includes("probeSwap"));
   render();
 }
@@ -1664,7 +1705,7 @@ async function runStream() {
 
 function start() {
   $("setup").hidden = true; $("connected").hidden = false;
-  state.unit = read(".unit"); state.victron = read(".victron"); state.loc = read(".loc"); state.heater = read(".heater"); state.pin = read(".pin"); state.pout = read(".pout"); state.shunt = read(".shunt"); state.protect = read(".protect"); state.lim = read(".lim"); if (!(state.lim && typeof state.lim.stopV === "number")) state.lim = null; state.device = null; state.fast = false;
+  state.unit = read(".unit"); state.victron = read(".victron"); state.loc = read(".loc"); state.heater = read(".heater"); state.pin = read(".pin"); state.pout = read(".pout"); state.shunt = read(".shunt"); state.protect = read(".protect"); state.lim = read(".lim"); if (!(state.lim && typeof state.lim.stopV === "number")) state.lim = null; state.guard = read(".guard"); if (!(state.guard && typeof state.guard.m === "number")) state.guard = null; state.device = null; state.fast = false;
   state.parts = read(".parts"); if (!(state.parts && typeof state.parts.keyset === "number")) state.parts = null; state.near = [];
   const savedHist = read(".hist");
   hist = savedHist && savedHist.rows ? savedHist.rows : {}; histThrough = savedHist && savedHist.through ? savedHist.through : 0;
@@ -1735,6 +1776,16 @@ $("place-row").addEventListener("click", openPlace);
 $("m-box").addEventListener("click", openPlace);
 $("heater-card").addEventListener("click", () => show("heater"));
 $("victron-card").addEventListener("click", () => { pw.dev = state.shunt ? "shunt" : "solar"; pw.tab = "status"; pw.sel = null; show("power"); });
+$("tow").addEventListener("click", async () => {
+  if (!canGuard) return;
+  // Two taps, so a pocket tap cannot turn the guard off.
+  if (Date.now() - towArmed > 4000) { towArmed = Date.now(); renderGuard(); setTimeout(renderGuard, 4100); return; }
+  towArmed = 0;
+  towSent = { at:Date.now() }; renderGuard();
+  const j = await callUnit("guard", "tow");
+  if (!j || j.return_value !== 1) towSent = { at:Date.now(), failed:true };
+  renderGuard();
+});
 $("set-home").addEventListener("click", () => {
   if (!state.loc || !state.loc.lck) return;
   home = { lat:state.loc.lat, lon:state.loc.lon };

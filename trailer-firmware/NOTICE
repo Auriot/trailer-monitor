@@ -1,0 +1,19 @@
+Auriot Trailer Monitor: box program
+
+This program is built on Particle Monitor Edge (Apache License 2.0),
+Copyright (c) Particle Industries, Inc. The files src/main.cpp and
+src/user_io.cpp are changed copies; each says what changed.
+
+It also includes third-party software under the MIT and BSD-3-Clause
+licenses. Their notices are in THIRD-PARTY-NOTICES.txt.
+
+Credits. The trailer code is new code. It uses message formats that these
+open projects worked out:
+- Diesel heater Bluetooth messages: Spettacolo83/homeassistant-diesel-heater,
+  Spettacolo83/diesel-heater-ble and iotmaestro/vevor-heater-ble (MIT).
+- Victron Instant Readout message layouts: keshavdv/victron-ble
+  (The Unlicense).
+
+Victron, Vevor and Particle are trademarks of their owners. They are named
+only to identify parts. This project is not made, approved or supported by
+them.

@@ -1,0 +1,44 @@
+slug: particle-monitor-edge
+type: Solution
+category: "Reference applications"
+expertiseLevel: "Intermediate"
+tags: ["Monitor One", "Tracker", "Sensors", "Industrial"]
+icon: assets/monitor-edge.svg
+gitrepo: https://github.com/particle-iot/monitor-edge
+name: "Monitor Edge"
+shortDescription: "A complete equipment monitoring solution."
+version: 1.2.0
+models: []
+language: [ "C++" ]
+cloudServices: 
+  - name: Integrations
+  - name: Logic
+  - name: Ledger
+  - name: Lake
+integrations: []
+supportedDevices:
+  - name: Monitor One
+    link: https://www.particle.io/devices/monitor-one/
+  - name: Tracker One
+    link: https://www.particle.io/tracker-som/
+hardwareDependencies:
+  - name: Supported device
+introduction: |
+  Application reference firmware for the Particle Monitor One.
+  
+  Monitor One can be used in three different ways:
+  - Completely off-the-shelf. With its cloud-based configuration, you can use the firmware as-is with no modifications in some cases.
+  - Semi-custom. The Monitor Edge firmware is customizable on-device making it possible to add new sensors and customize behavior while still making it easy to upgrade the base firmware.
+  - Custom. Edit the Monitor Edge firmware so you can duplicate and modify it for completely custom applications.
+
+description: |
+  Monitor Edge provides a comprehensive software suite for equipment monitoring, featuring advanced tracking, remote management, and seamless integration with the Particle IoT platform.
+
+  Key Software Features:
+  - Location Fusion Technology: Uses advanced Location Fusion to integrate Wi-Fi, GNSS, and cellular data sources, offering accurate location tracking even in complex environments.
+  - Configurable Event Triggers and Data Publishing: Customizable publish rates and event-based triggers ensure efficient data flow and responsiveness to key operational metrics.
+  - Remote Management and OTA Updates: Supports seamless remote software updates and management, enabling quick response to security vulnerabilities, feature updates, and application changes.
+  - Comprehensive Data Integration and Management: Leverages Particle’s Integrations, Logic, Ledger, and Lake for reliable data handling, event logging, and efficient data pipeline management.
+  - Edge-Optimized Data Processing: Includes local data storage and processing capabilities with store-and-forward features to prevent data loss during connectivity outages.
+
+additionalResources:

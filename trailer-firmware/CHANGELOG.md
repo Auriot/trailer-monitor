@@ -1,0 +1,56 @@
+## v3
+
+### COMPATIBILTY
+
+Must be built using device OS v4.0.2 or greater.
+
+### FEATURES
+
+- Update deprecated Watchdog APIs for Device OS 6.4.0 and above.
+- Support for the `PARTICLE_PMIC_INPUT_CURRENT` and `PARTICLE_PMIC_CHARGE_CURRENT` environment variables on device OS 6.5.0 and above, which override the PMIC input current limit and battery charge current.  See official Particle documentation for example usage.
+
+### ENHANCEMENTS
+
+- Source can be built for Device OS >= 6.4.0.
+- Log the PMIC configuration applied by the system power manager, along with any environment variable overrides.
+
+### BUGFIXES
+
+- Fixes USB ctrl_request_custom_handler return value to correctly indicate success/failure.
+- Work around a device OS 6.5.0 panic (SOS 10, assertion failure) that could reset the device when serial logging filled the USB CDC transmit buffer.
+
+## v2
+
+### COMPATIBILTY
+
+Must be built using device OS v4.0.2 or greater.
+
+### FEATURES
+
+- Added Modbus RTU client library
+- Added configurable Modbus polling for three devices
+
+### ENHANCEMENTS
+
+- Updated compile actions to build with the latest device OS releases for 4.x and 5.x
+- Included *.def file patterns for cloud compiles to pick up Memfault includes
+
+### BUGFIXES
+
+- Fixed an outdated reset pin assignment to an interrupt pin
+
+
+## v1
+
+### COMPATIBILTY
+
+Must be built using device OS v4.0.2 or greater.
+
+### FEATURES
+
+- Basic support for 4-20mA, 0-10V, high voltage input, and relay features of IO expansion card.
+
+### ENHANCEMENTS
+
+
+### BUGFIXES
