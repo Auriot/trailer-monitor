@@ -2,7 +2,9 @@
 
 A free, do-it-yourself monitor for a trailer, built on a Particle Monitor One. From your phone you see where the trailer is, the battery, the solar and the temperature, and you can start and stop a diesel heater.
 
-> **Preview.** This runs on our own trailer. It is not yet tested on a new box by a new builder. The software steps (load the program, put the phone page online) come after that test.
+**Building one? You do not need GitHub.** Follow the build steps at https://auriot.com/trailer-kit/. They link the program download.
+
+> **Preview.** This runs on our own trailer. It is not yet tested on a new box by a new builder.
 
 ## Read this first
 
@@ -13,7 +15,11 @@ A free, do-it-yourself monitor for a trailer, built on a Particle Monitor One. F
 - When you start the heater from your phone, nobody is there to watch it. The cell signal, the box, the heater or the battery can fail.
 - The people who made this are not liable for any damage, injury or loss that comes from building or using it.
 
-## Build guide
+## Download the program
+
+[Program 102: trailer-monitor.bin](https://github.com/Auriot/trailer-monitor/releases/download/v102/trailer-monitor.bin)
+
+When you upload it to your Particle product, type the version **102**. Every program is on the [Releases](https://github.com/Auriot/trailer-monitor/releases) page. Each release title has its version number.
 
 Parts, wiring and build steps: https://auriot.com/trailer-kit/
 
@@ -21,7 +27,7 @@ Parts, wiring and build steps: https://auriot.com/trailer-kit/
 
 - `trailer-firmware/`: the box program. It is Particle Monitor Edge plus the trailer code. You do not need to build it.
 - `phone-page/`: the phone page. Each builder puts their own copy online for free.
-- The ready box program: [trailer-monitor.bin](https://github.com/Auriot/trailer-monitor/releases/latest/download/trailer-monitor.bin). This link always gets the newest version.
+- The ready box program: see **Download the program** above.
 
 ## Questions
 
