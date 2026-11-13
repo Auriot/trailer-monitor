@@ -99,6 +99,19 @@ a { color:inherit; font-weight:600; }
 #ctl-sum { margin:4px 0 8px; font-size:13px; color:var(--text); }
 .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:auto; }
 .btn.stop { color:var(--bad); border-color:var(--bad); }
+/* Help: the one screen with long text, so its list scrolls inside the card. */
+.help-list { flex:1; min-height:0; overflow-y:auto; margin-bottom:8px; }
+.help-list details { border-top:1px solid var(--line); }
+.help-list details:first-child { border-top:0; }
+.help-list summary { min-height:44px; display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer; list-style:none; }
+.help-list summary::-webkit-details-marker { display:none; }
+.help-list summary::after { content:"+"; margin-left:auto; padding-right:8px; font-size:20px; color:var(--muted); }
+.help-list details[open] summary::after { content:"\2212"; }
+.help-body { padding:0 10px 10px 2px; font-size:14px; line-height:1.4; }
+.help-body p { margin:0 0 6px; }
+.help-body ul, .help-body ol { margin:0 0 6px; padding-left:20px; }
+.help-body li { margin:3px 0; }
+#help-back { flex:none; align-self:flex-start; }
 .btn:disabled { opacity:.4; }
 /* Two-tap buttons (Start, Update, I'm towing, Remove): the first tap only arms the button. It turns amber,
    pulses, and a bar along its bottom runs out over ARM_MS (6 s); the second tap must come before the bar ends. */
@@ -277,6 +290,7 @@ a { color:inherit; font-weight:600; }
   #ctl-plan .ctl-row:first-child { grid-column:1 / -1; justify-content:flex-start; gap:12px; }
   .seg button { min-height:24px; }
   .actions .btn { min-height:32px; }
+  #help-open { min-height:32px; }
   .place-btns { margin-top:4px; }
   .place-btns .btn { min-height:32px; }
   .preview { margin-bottom:4px; }
@@ -315,7 +329,7 @@ a { color:inherit; font-weight:600; }
     <button id="nav-heater" type="button" aria-label="Heater"><svg viewBox="0 0 24 24"><path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 .5-3-1-5.500 1-8.500Z"/></svg>Heater</button>
     <button id="nav-power" type="button" aria-label="Power"><svg viewBox="0 0 24 24"><path d="M13 3 5 13.500h6L10 21l8-10.500h-6L13 3Z"/></svg>Power</button>
     <button id="nav-history" type="button" aria-label="History"><svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M8 15l3-4 3 2 4-6"/></svg>History</button>
-    <button id="nav-setup" type="button" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.600 5.600l2.100 2.100M16.300 16.300l2.100 2.100M5.600 18.400l2.100-2.100M16.300 7.700l2.100-2.100"/></svg></button>
+    <button id="nav-setup" type="button" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M18.89 9.89 L21.48 10.50 L21.48 13.50 L18.89 14.11 L18.36 15.38 L19.77 17.64 L17.64 19.77 L15.38 18.36 L14.11 18.89 L13.50 21.48 L10.50 21.48 L9.89 18.89 L8.62 18.36 L6.36 19.77 L4.23 17.64 L5.64 15.38 L5.11 14.11 L2.52 13.50 L2.52 10.50 L5.11 9.89 L5.64 8.62 L4.23 6.36 L6.36 4.23 L8.62 5.64 L9.89 5.11 L10.50 2.52 L13.50 2.52 L14.11 5.11 L15.38 5.64 L17.64 4.23 L19.77 6.36 L18.36 8.62Z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </nav>
 
   <div class="status"><span id="heard">Not connected</span><span id="conn" class="pill muted">Sample</span></div>
@@ -478,7 +492,7 @@ a { color:inherit; font-weight:600; }
     <section class="card">
       <h2>This phone</h2>
       <div class="ctl-row"><span>Temperature</span><div class="seg" id="set-unit"><button type="button" data-v="F">F</button><button type="button" data-v="C">C</button></div></div>
-      <div class="ctl-row"><span>Fuel can</span><div class="step" data-s="can"><button type="button" data-d="-1" aria-label="Less">-</button><output></output><button type="button" data-d="1" aria-label="More">+</button></div></div>
+      <div class="ctl-row"><span>How to use this page</span><button id="help-open" class="btn" type="button">Help</button></div>
       <div class="ctl-row" id="connected" hidden><span>Connected to the box</span><button id="forget" class="btn" type="button">Disconnect</button></div>
     </section>
     <!-- The box keeps these and sends them back in each report (ctl.lim). Hidden until a report has them. -->
@@ -502,6 +516,25 @@ a { color:inherit; font-weight:600; }
       <p id="setup-err" class="err"></p>
       <button class="btn primary" type="submit">Connect</button>
     </form>
+  </div>
+
+  <!-- HELP, opened from Settings. Only the list scrolls; the text comes from particle trailer/user-guide/GUIDE.md. -->
+  <div id="view-help" class="view" hidden>
+    <section class="card fill" id="help-card">
+      <h2>Help</h2>
+      <div class="help-list" id="help-list">
+<!-- HELP START: made by particle trailer/user-guide/build_user_guide.py from GUIDE.md. Edit GUIDE.md, not here. -->
+<details><summary>The screens</summary><div class="help-body"><p>Tap the names at the top: Home, Heater, Power, History. The gear is Settings.</p><ul><li>The top line says "Online, heard 2 min ago". The box sends new numbers once an hour. While the page is open, it sends them every 30 seconds for 5 minutes.</li><li>"OLD" in front of a number: it is more than 90 minutes old.</li><li>Home: battery and solar, Inside and Outside temperature, the heater, cell signal, location.</li><li>Heater: start, stop and set the heater.</li><li>Power: your Victron parts, like VictronConnect.</li><li>History: the last 7 days, one record an hour. Battery, solar each day, Inside and Outside, heater run time each day.</li></ul></div></details>
+<details><summary>Start the heater</summary><div class="help-body"><ol><li>Tap "Heater".</li><li>At "Control by", tap "Level" or "Temp".</li><li>Level: set "Level, fan and fuel" (1 to 10). The heater runs at that level. Temp: set "Heat to" and "Highest level". The box picks the level. See "Temp" below.</li><li>Set "Run for" (1 to 8 hr).</li><li>Tap "Start" two times. One tap sends nothing: the page says "NOT SENT".</li><li>The box answers in about 30 seconds. "Box now" shows what the box runs.</li></ol><p>To change a run: change the setting, then tap "Update" two times.</p><p>To stop: tap "Stop". The heater cools down for 3 to 5 minutes. It shows "Stopping", then "Off". It cannot start again until it shows "Off".</p><p>A run started at the heater's own panel gets no timer and no safety stops from the box. Tap "Set timer" two times to give it both.</p></div></details>
+<details><summary>Temp: the box is the thermostat</summary><div class="help-body"><p>The box reads the inside probe every minute and tells the heater which level to run. It looks 5 minutes ahead: it checks how fast the trailer warmed or cooled in the last 10 minutes.</p><ul><li>3 F or more under "Heat to": "Highest level".</li><li>Closer to "Heat to": a lower level. At 1 F over "Heat to": level 1.</li><li>It turns the heater down at once. It turns it up one level at a time, at most every 2 minutes.</li><li>Cut-out: 4 F over "Heat to" at level 1, after 20 minutes or more on: the box pauses the heater. It cools down, then goes off.</li><li>Cut-in: the trailer will be 1.5 F under "Heat to" within 5 minutes, and the heater has been off 15 minutes or more: the box starts it again at level 1, then up one level at a time.</li><li>Example: "Heat to" 65 F. It pauses at about 69 F. It starts again at about 63.5 F.</li><li>Each start uses the glow plug, which takes a lot of battery. That is why it waits 20 minutes on and 15 minutes off.</li><li>The run ends when "Run for" ends, paused or not.</li></ul></div></details>
+<details><summary>It stops by itself</summary><div class="help-body"><p>The box stops a run it started when:</p><ul><li>"Run for" ends.</li><li>Inside is 90 F or more.</li><li>The battery is under "Stop: volts under" (11.8 V unless you change it) for 5 minutes. Not in the first 10 minutes of a start.</li><li>The battery charge is under "Stop: charge under", if you set it. Needs a battery monitor.</li><li>The inside probe sends nothing for 10 minutes.</li><li>The heater has a fault.</li><li>Someone turns the heater off at its own panel.</li></ul><p>While a Temp run is paused, a low battery does not end it. The restart waits until the battery is over the limit again (sun or a charger).</p><p>The box does these stops itself. They work with no phone and no cell signal.</p></div></details>
+<details><summary>Where to put the inside probe</summary><div class="help-body"><p>The box heats to what the inside probe reads. Near the floor reads colder than near the ceiling. Put it at the height where you want the temperature right, like where you sit or sleep. Keep it out of the heater's hot air and out of the sun, and off cold walls and windows.</p></div></details>
+<details><summary>Location and home spot</summary><div class="help-body"><ul><li>On Home, tap "Location".</li><li>When the box has a GPS fix, tap "Make this the home spot". The page then shows how far the trailer is from it. 100 m or more shows "MOVED".</li><li>The home spot is saved on this phone only. Set it on each phone.</li><li>"Open in Google Maps" shows the spot in Maps.</li><li>The box also guards by itself. After the trailer stands still for 30 minutes, it makes a move alert if the trailer moves 100 m or more, or loses its 12 V. Before you tow, tap "I'm towing" two times: no alerts until it is parked for 30 minutes again. The build steps do not set up where the alert goes.</li></ul></div></details>
+<details><summary>Settings (gear)</summary><div class="help-body"><ul><li>"Temperature": F or C.</li><li>"Heater battery limits": "Stop: volts under" (11.6 to 12.4 V). "Stop: charge under" (off, or 10 to 80 %; needs a battery monitor). Tap "Save".</li><li>"The box": "Change" next to "Parts" for your Victron parts and heater. "Swap" if Inside and Outside are the wrong way round.</li><li>"Disconnect" removes the setup code, the home spot and the saved numbers from this phone.</li></ul></div></details>
+<!-- HELP END -->
+      </div>
+      <button id="help-back" class="btn" type="button">Back</button>
+    </section>
   </div>
 
   <!-- PARTS, opened from Settings. The box keeps each setting in its memory. A key goes to the box
@@ -875,7 +908,7 @@ function render() {
 }
 
 // HEATER CONTROLS. Run now with a timer is live (Start and Stop below). Level, Temp and Arrive by are math only, hidden.
-const prefs = Object.assign({ unit:"F", can:5 }, read(".prefs"));
+const prefs = Object.assign({ unit:"F" }, read(".prefs"));
 const ctl = { mode:"run", by:"level", level:10, target:65, hours:4, arrive:null, hold:1, warm:2 };
 const hrs = (v) => v + " hr";
 const STEPPERS = {
@@ -884,7 +917,6 @@ const STEPPERS = {
   hours:  { get:() => ctl.hours,  set:v => ctl.hours = v,  min:1,   max:8,  step:() => 1,   show:hrs },
   hold:   { get:() => ctl.hold,   set:v => ctl.hold = v,   min:0,   max:3,  step:() => 0.5, show:hrs },
   warm:   { get:() => ctl.warm,   set:v => ctl.warm = v,   min:0.5, max:6,  step:() => 0.5, show:hrs },
-  can:    { get:() => prefs.can,  set:v => { prefs.can = v; write(".prefs", prefs); }, min:1, max:20, step:() => 1, show:v => v + " gal" },
   // Battery stop limits: the same ranges the box takes (heaterrules::validLimits). Charge steps 5 %; under 10 is Off.
   limStopPct:  { get:() => lim.stopPct,  set:v => editLim("stopPct", pctStep(lim.stopPct, v)),  min:0, max:80, step:() => 5, show:v => showPct(v) },
   limStopV:    { get:() => lim.stopV,    set:v => editLim("stopV", v),  min:11.6, max:12.4, step:() => 0.1, show:v => v.toFixed(1) + " V" },
@@ -1112,7 +1144,7 @@ function boxText(b) {
   if (!b) return "";
   const ends = " Ends " + (c && c.end ? clock(c.end) : "at the set time") + ".";
   if (b.by === "temp") return "Box now: Temp " + showC(c.tg) + (c.idle && c.bw ? ", paused for low battery." : c.idle
-    ? ", paused until under " + showC(c.tg - 5 / 3) + "." : ", highest level " + c.mx + ".") + ends;
+    ? ", paused until about " + showC(c.tg - 5 / 6) + "." : ", highest level " + c.mx + ".") + ends;
   if (b.panel) return "Box now: on at the heater, level " + b.level + ", no timer.";
   if (b.by === "level") return "Box now: Level " + ((h && h.lvl) || b.level) + (c && c.wl ? ", going to " + c.wl + "." : ".") + ends;
   return "Box now: off.";
@@ -1690,9 +1722,9 @@ function pickTrendHour(e) {
 function setConn(text, kind) { const el = $("conn"); el.textContent = text; el.className = "pill " + kind; }
 
 function show(name) {
-  ["home", "heater", "power", "history", "place", "setup", "parts"].forEach(n => { $("view-" + n).hidden = n !== name; });
-  ["home", "heater", "power", "history", "setup"].forEach(n => { $("nav-" + n).classList.toggle("on", n === name || (n === "home" && name === "place") || (n === "setup" && name === "parts")); });
-  $("banner").hidden = !!cfg || name === "setup" || name === "parts";
+  ["home", "heater", "power", "history", "place", "setup", "parts", "help"].forEach(n => { $("view-" + n).hidden = n !== name; });
+  ["home", "heater", "power", "history", "setup"].forEach(n => { $("nav-" + n).classList.toggle("on", n === name || (n === "home" && name === "place") || (n === "setup" && (name === "parts" || name === "help"))); });
+  $("banner").hidden = !!cfg || name === "setup" || name === "parts" || name === "help";
   if (name !== "parts") partEdit = null;
   if (name !== "history") histSel = null;
   render();
@@ -1839,6 +1871,8 @@ $("ctl-go").addEventListener("click", tapStart);
 $("ctl-stop").addEventListener("click", tapStop);
 $("lim-send").addEventListener("click", sendLim);
 $("parts-open").addEventListener("click", () => { partEdit = null; show("parts"); });
+$("help-open").addEventListener("click", () => show("help"));
+$("help-back").addEventListener("click", () => show("setup"));
 document.querySelectorAll("#parts-list [data-part]").forEach(b => b.addEventListener("click", () => openPart(b.dataset.part)));
 $("pe-back").addEventListener("click", () => { partEdit = null; renderParts(); });
 $("pe-save").addEventListener("click", savePart);
