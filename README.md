@@ -4,7 +4,7 @@ A free, do-it-yourself monitor for a trailer, built on a Particle Monitor One. F
 
 **Building one? You do not need GitHub.** Follow the build steps at https://auriot.com/trailer-kit/. They link the program download.
 
-> **Preview.** This runs on our own trailer. It is not yet tested on a new box by a new builder.
+> **Preview.** This runs on our own trailer. Built from these pages on a second, brand-new box in November 2026. Not yet built by anyone else.
 
 ## Read this first
 
