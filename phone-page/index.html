@@ -100,6 +100,16 @@ a { color:inherit; font-weight:600; }
 .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:auto; }
 .btn.stop { color:var(--bad); border-color:var(--bad); }
 .btn:disabled { opacity:.4; }
+/* Two-tap buttons (Start, Update, I'm towing, Remove): the first tap only arms the button. It turns amber,
+   pulses, and a bar along its bottom runs out over ARM_MS (6 s); the second tap must come before the bar ends. */
+.btn.armed { position:relative; overflow:hidden; background:var(--warn); color:#1a1200; border-color:var(--warn); animation:armed-pulse .9s ease-in-out infinite; }
+.btn.armed::after { content:""; position:absolute; left:0; bottom:0; width:100%; height:5px; background:#1a1200; opacity:.5; transform-origin:left; animation:armed-time 6s linear forwards; }
+@keyframes armed-pulse { 50% { box-shadow:0 0 0 5px rgba(242,182,50,.4); } }
+@keyframes armed-time { from { transform:scaleX(1); } to { transform:scaleX(0); } }
+@media (prefers-reduced-motion:reduce) { .btn.armed { animation:none; } }
+#ctl-box { font-size:14px; font-weight:700; margin:0 0 4px; }
+#ctl-box:empty { display:none; }
+#ctl-note.armed { font-size:14px; }
 #lim-note { margin:0; flex:1; min-width:0; }
 #lim-note.flash { color:var(--bad); }
 #l-guard.flash { color:var(--bad); font-weight:600; }
@@ -370,6 +380,7 @@ a { color:inherit; font-weight:600; }
     </section>
     <!-- Start, Stop, Level and Temp call the unit's "heat" function. Arrive by comes later: hidden. -->
     <section class="card fill" id="ctl">
+      <p id="ctl-box"></p>
       <p class="preview" id="ctl-note">--</p>
       <div class="seg" id="ctl-mode" hidden><button type="button" data-v="run">Run now</button><button type="button" data-v="plan">Arrive by</button></div>
       <div id="ctl-run">
@@ -567,6 +578,13 @@ function networkName(code) {
 }
 const state = { unit:null, victron:null, heater:null, device:null, loc:null, fast:false, pin:null, pout:null, ctl:null };
 let cfg = null, abort = null, retryMs = 5000, retryTimer = null, canAskLocation = false, canSayOpen = false, lastAsk = 0, home = null, canAskHist = false, canGuard = false, towArmed = 0, towSent = null, lastHistAsk = 0, histThrough = 0, histExpect = null, histSel = null, hist = {};
+// Controls changed on this screen that the box does not run yet. They stay as set (the box's reports do not
+// move them) until the box takes them, the values match the box again, or Stop.
+const touched = new Set();
+// Time for the second tap on a two-tap button. The CSS bar on an armed button runs the same 6 s.
+const ARM_MS = 6000;
+// A short buzz where the phone allows it (Android). iPhone web pages cannot buzz: the colour, pulse and words do it.
+const buzz = (pattern) => { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch {} };
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(STORE + k)); } catch { return null; } };
 const write = (k, v) => { try { localStorage.setItem(STORE + k, JSON.stringify(v)); } catch {} };
@@ -657,13 +675,18 @@ function applyReport(r, at) {
     if (!(r.keyset & 4)) state.protect = null;
     if (!state.parts.hn) state.heater = null;
   }
-  // The controls follow the unit, except for a minute after a tap. A thermostat run shows its target
-  // and highest level; otherwise Level follows the heater.
-  if (Date.now() - levelTapAt > 60000) {
-    const k = r.ctl;
-    if (k && k.a === 1 && k.th === 1 && typeof k.tg === "number") { ctl.by = "temp"; ctl.target = Math.round(k.tg / 10 * 9 / 5 + 32); if (k.mx) ctl.level = k.mx; }
-    else if (k && k.a === 1) ctl.by = "level";
-    if (!(k && k.th === 1) && h && h.ok && h.lvl >= 1 && h.lvl <= 10 && !(k && k.wl)) ctl.level = h.lvl;
+  // The controls follow the unit, except a control changed on this screen that the box does not run yet
+  // (it stays as set until the box takes it), and the level for a minute after a level tap that went to the box.
+  // A thermostat run shows its target and highest level; otherwise Level follows the heater.
+  {
+    const k = r.ctl, keep = (f) => touched.has(f), lvlFree = !keep("level") && Date.now() - levelTapAt > 60000;
+    if (k && k.a === 1 && k.th === 1 && typeof k.tg === "number") {
+      if (!keep("by")) ctl.by = "temp";
+      if (!keep("target")) ctl.target = Math.round(k.tg / 10 * 9 / 5 + 32);
+      if (k.mx && lvlFree) ctl.level = k.mx;
+    }
+    else if (k && k.a === 1 && !keep("by")) ctl.by = "level";
+    if (!(k && k.th === 1) && h && h.ok && h.lvl >= 1 && h.lvl <= 10 && !(k && k.wl) && lvlFree) ctl.level = h.lvl;
   }
   // Heater control from the unit: a run on the timer, its end, the last command result and why the last run ended.
   const c = r.ctl;
@@ -717,7 +740,8 @@ function guardWords(g) {
 function renderGuard() {
   const g = state.guard, note = $("l-guard"), tow = $("tow");
   tow.hidden = !(cfg && canGuard);
-  tow.textContent = Date.now() - towArmed < 4000 ? "Tap again" : "I'm towing";
+  const towArmedNow = Date.now() - towArmed < ARM_MS;
+  tow.textContent = towArmedNow ? "Tap again" : "I'm towing"; tow.classList.toggle("armed", towArmedNow);
   if (towSent && g && g.m === 2 && new Date(g.at).getTime() >= towSent.at - 3000) towSent = null;
   let text = "", bad = false;
   if (towSent && towSent.failed) { text = "Could not reach the unit. The guard is still on."; bad = true; }
@@ -1002,9 +1026,9 @@ function renderParts() {
   const busy = !!e.sent;
   const m = $("pe-msg"); m.textContent = busy ? "Sent. The box answers in about 30 seconds." : e.msg; m.classList.toggle("flash", !busy && !!e.bad);
   $("pe-save").disabled = busy;
-  const armed = Date.now() - e.armed < 4000;
+  const armed = Date.now() - e.armed < ARM_MS;
   $("pe-remove").disabled = busy || !on;
-  $("pe-remove").textContent = armed ? "Tap again" : "Remove";
+  $("pe-remove").textContent = armed ? "Tap again" : "Remove"; $("pe-remove").classList.toggle("armed", armed && !busy && on);
 }
 
 function openPart(kind) {
@@ -1043,7 +1067,8 @@ function savePart() {
 
 function removePart() {
   const e = partEdit; if (!e || e.sent || !partSet(e.kind)) return;
-  if (Date.now() - e.armed >= 4000) { e.armed = Date.now(); e.msg = "Tap Remove again to take it off the box."; e.bad = false; renderParts(); setTimeout(renderParts, 4100); return; }
+  if (Date.now() - e.armed >= ARM_MS) { e.armed = Date.now(); e.msg = "Tap Remove again to take it off the box."; e.bad = false; buzz(30); renderParts(); setTimeout(renderParts, ARM_MS + 100); return; }
+  buzz([40, 60, 40]);
   if (e.kind === "heater") sendPart("heaterName", "off", "remove");
   else sendPart("victronKey", PARTS[e.kind].arg + ",off", "remove");
 }
@@ -1052,82 +1077,141 @@ function removePart() {
 const TERMS_VERSION = 1;
 function showTerms() { $("terms").hidden = read(".agreed") === TERMS_VERSION; }
 
-let canHeat = false, heatSent = null, startArmed = 0, levelTapAt = 0, levelTimer = null;
+let canHeat = false, heatSent = null, heatMiss = false, heatFail = null, heatDoneAt = 0, startArmed = 0, lapsedAt = 0, levelTapAt = 0, levelTimer = null;
 const heaterOn = () => !!(state.heater && state.heater.st === 1);
+
+// What the box runs now, from its last report. null before a report says.
+function boxRun() {
+  const c = state.ctl, h = state.heater;
+  if (c && c.a && c.th && c.tg !== null) return { by:"temp", target:c.tg * 9 / 5 + 32, level:c.mx };
+  if (c && c.a) return { by:"level", level:c.wl || (h && h.lvl) || 0 };
+  if (heaterOn()) return { by:"level", level:(h && h.lvl) || 0, panel:true };
+  return c ? { by:"off" } : null;
+}
+// True when the box's last report runs what was sent.
+function runs(x) {
+  const c = state.ctl, h = state.heater;
+  if (!c) return false;
+  if (x.by === "off") return !c.a;
+  if (x.by === "temp") return !!(c.a && c.th && c.tg !== null && Math.abs(c.tg * 9 / 5 + 32 - x.target) < 0.6 && c.mx === x.level);
+  return !!(c.a && !c.th && (!x.level || c.wl === x.level || (h && h.lvl === x.level)));
+}
+// A level tap goes to the box by itself only when the screen and the box run the same way:
+// Level on a level run (or a run started at the heater), or Temp on a thermostat run (the highest level).
+const liveLevel = (b) => !!b && b.by !== "off" && b.by === ctl.by;
+// The changes on the screen that the box does not run. Only while something runs: with the heater off,
+// the screen is the setup for Start. A matching value counts as taken again.
+function unsent(b) {
+  if (!b || b.by === "off") return [];
+  const same = { by:ctl.by === b.by, level:ctl.level === b.level, target:b.by === "temp" && Math.abs(ctl.target - b.target) < 0.6 };
+  ["by", "level", "target"].forEach(f => { if (same[f]) touched.delete(f); });
+  return [...touched].filter(f => !(f === "level" && liveLevel(b)) && !(f === "target" && ctl.by !== "temp"));
+}
+function boxText(b) {
+  const c = state.ctl, h = state.heater;
+  if (!b) return "";
+  const ends = " Ends " + (c && c.end ? clock(c.end) : "at the set time") + ".";
+  if (b.by === "temp") return "Box now: Temp " + showC(c.tg) + (c.idle && c.bw ? ", paused for low battery." : c.idle
+    ? ", paused until under " + showC(c.tg - 5 / 3) + "." : ", highest level " + c.mx + ".") + ends;
+  if (b.panel) return "Box now: on at the heater, level " + b.level + ", no timer.";
+  if (b.by === "level") return "Box now: Level " + ((h && h.lvl) || b.level) + (c && c.wl ? ", going to " + c.wl + "." : ".") + ends;
+  return "Box now: off.";
+}
 
 function renderHeat() {
   const n = $("ctl-note"), c = state.ctl, go = $("ctl-go"), stop = $("ctl-stop");
   go.disabled = stop.disabled = !canHeat;
-  go.textContent = Date.now() - startArmed < 4000 ? "Tap again" : c && c.a ? "Update" : heaterOn() ? "Set timer" : "Start";
-  let text, bad = false;
-  if (!canHeat) text = "The unit's program has no heater control.";
-  else if (heatSent && !(c && c.resAt && c.resAt >= heatSent.at - 3000)) {
-    text = Date.now() - heatSent.at > 180000 ? "No answer from the unit yet. Check the signal." : heatSent.what + " sent. The unit answers in about 30 seconds.";
-  } else {
-    if (heatSent) heatSent = null;
-    const fresh = c && c.resAt && Date.now() - c.resAt < 600000 && !PART_RESULTS.includes(c.res) ? resultText(c.res) + " " : "";
-    const wait = c && c.wl ? " Level " + c.wl + " waits until the heater is running." : "";
-    if (c && c.sw) { text = RESULTS["-9"]; bad = true; }
-    else if (wait) text = fresh + wait.trim();
-    else if (c && c.a && c.th && c.tg !== null) text = fresh + (c.idle && c.bw
-        ? "Thermostat: paused, battery under its stop limit. Starts again when the battery comes back."
-        : c.idle ? "Thermostat: warm enough, heater paused. Starts again below " + showC(c.tg - 5 / 3) + "."
-        : "Thermostat: keeps " + showC(c.tg) + ", highest level " + c.mx + ".") + " Ends " + (c.end ? clock(c.end) : "at the set time") + ".";
-    else if (c && c.a) text = fresh + "On the timer. Stops " + (c.end ? clock(c.end) : "at the set time") + ".";
-    else if (heaterOn()) text = fresh + "Started at the heater, no timer. Set timer puts it on one.";
-    else if (c && c.whyAt) text = fresh + "Last run ended " + ago(new Date(c.whyAt).toISOString()) + ": " + (WHYS[c.why] || "code " + c.why) + ".";
-    else text = fresh || "Ready.";
-    bad = bad || (c && c.res < 0 && Date.now() - c.resAt < 600000 && !PART_RESULTS.includes(c.res));
+  const armed = Date.now() - startArmed < ARM_MS;
+  const label = c && c.a ? "Update" : heaterOn() ? "Set timer" : "Start";
+  go.textContent = armed ? "Tap again" : label;
+  go.classList.toggle("armed", armed);
+  // The box answered the last send: check it now runs what was sent.
+  if (heatSent && c && c.resAt && c.resAt >= heatSent.at - 3000) {
+    const s = heatSent; heatSent = null;
+    heatMiss = !!(s.expect && c.res > 0 && !runs(s.expect));
+    if (s.expect && c.res > 0 && !heatMiss) { touched.clear(); heatDoneAt = c.resAt; }
   }
-  n.textContent = text; n.classList.toggle("flash", !!bad);
+  const b = boxRun(), wait = unsent(b);
+  $("ctl-box").textContent = canHeat ? boxText(b) : "";
+  const fresh = c && c.resAt && Date.now() - c.resAt < 600000 && !PART_RESULTS.includes(c.res);
+  let text, cls = "";
+  if (!canHeat) text = "The unit's program has no heater control.";
+  else if (armed) { text = "Not sent yet. Tap again to confirm."; cls = "armed"; }
+  else if (heatSent) {
+    const late = Date.now() - heatSent.at > 180000;
+    text = late ? "No answer from the box yet. Check the signal." : heatSent.what + " sent. The box answers in about 30 seconds.";
+    if (late) cls = "flash";
+  }
+  else if (heatFail && !(c && c.resAt > heatFail.at)) { text = heatFail.msg; cls = "flash"; }
+  else if (lapsedAt) { text = "NOT SENT. You tapped once. Tap " + label + " two times to send."; cls = "flash"; }
+  else if (c && c.sw) { text = RESULTS["-9"]; cls = "flash"; }
+  else if (fresh && c.res < 0) { text = resultText(c.res); cls = "flash"; }
+  else if (heatMiss) { text = "The box did not take your change. Tap " + label + " two times to try again."; cls = "flash"; }
+  else if (wait.length) { text = "Not sent yet. Tap " + label + " two times to send your change."; cls = "armed"; }
+  else {
+    const head = fresh && c.resAt === heatDoneAt ? "Done. The box took your change." : fresh ? resultText(c.res) : "";
+    const tail = b && b.panel ? "Set timer puts it on a timer."
+      : c && !c.a && c.whyAt ? "Last run ended " + ago(new Date(c.whyAt).toISOString()) + ": " + (WHYS[c.why] || "code " + c.why) + "." : "";
+    text = [head, tail].filter(Boolean).join(" ") || (b && b.by !== "off" ? "" : "Ready.");
+  }
+  n.textContent = text; n.classList.toggle("flash", cls === "flash"); n.classList.toggle("armed", cls === "armed");
 }
 
-async function sendHeat(arg, what) {
-  heatSent = { what, at:Date.now() }; renderHeat();
+async function sendHeat(arg, what, expect) {
+  heatSent = { what, at:Date.now(), expect }; heatMiss = false; heatFail = null; renderHeat();
   const j = await callUnit("heat", arg);
   if (!j || j.return_value !== 1) {
     heatSent = null;
-    const n = $("ctl-note");
-    n.textContent = j && j.return_value === -2 ? "A stop is still going. Try again after it." : "Could not reach the unit. Nothing was sent to the heater.";
-    n.classList.add("flash");
+    // Shown until the next tap or a newer answer from the box.
+    heatFail = { at:Date.now(), msg:j && j.return_value === -2 ? "A stop is still going. Try again after it." : "NOT SENT. Could not reach the box. Nothing was sent to the heater." };
+    renderHeat();
   }
 }
+
+// A tap on a heater control clears the old "not sent" and failure lines.
+function heatTapped() { lapsedAt = 0; heatFail = null; heatMiss = false; }
 
 function tapStart() {
   if (!canHeat) return;
-  // Two taps, so a pocket tap cannot start the heater.
-  if (Date.now() - startArmed > 4000) { startArmed = Date.now(); renderHeat(); setTimeout(renderHeat, 4100); return; }
-  startArmed = 0;
-  const minutes = Math.round(ctl.hours * 60);
+  heatTapped();
+  // Two taps, so a pocket tap cannot start the heater. The first tap only arms the button; if the second
+  // tap does not come in time, the note says NOT SENT until the next tap, so it cannot pass unseen.
+  if (Date.now() - startArmed >= ARM_MS) {
+    startArmed = Date.now(); buzz(30); renderHeat();
+    setTimeout(() => { if (startArmed && Date.now() - startArmed >= ARM_MS) { startArmed = 0; lapsedAt = Date.now(); } renderHeat(); }, ARM_MS + 100);
+    return;
+  }
+  startArmed = 0; buzz([40, 60, 40]);
+  const minutes = Math.round(ctl.hours * 60), what = state.ctl && state.ctl.a ? "Change" : null;
   if (ctl.by === "temp") {
     const c10 = Math.min(294, Math.max(44, Math.round((ctl.target - 32) * 50 / 9)));
-    sendHeat("th," + minutes + "," + c10 + "," + ctl.level, "Thermostat");
+    sendHeat("th," + minutes + "," + c10 + "," + ctl.level, what || "Thermostat", { by:"temp", target:ctl.target, level:ctl.level });
     return;
   }
   // The level goes with the start only when it differs from the heater's own.
-  const h = state.heater, lvl = h && h.lvl === ctl.level ? "" : "," + ctl.level;
-  sendHeat("on," + minutes + lvl, heaterOn() ? "Timer" : "Start");
+  const h = state.heater, lvl = h && h.lvl === ctl.level ? 0 : ctl.level;
+  sendHeat("on," + minutes + (lvl ? "," + lvl : ""), what || (heaterOn() ? "Timer" : "Start"), { by:"level", level:lvl });
 }
 
-// While the heater runs, a level tap goes to the unit after a short pause, so several taps send once.
-// While it is off, the level goes with Start.
-// During a thermostat run, the level is its highest level, and it goes even while paused.
+// A level tap goes to the box after a short pause, so several taps send once, only while the screen and the box
+// run the same way (see liveLevel); during a thermostat run it is the highest level and goes even while paused.
+// Otherwise the level waits for Start or Update.
 function tapLevel() {
-  levelTapAt = Date.now();
   clearTimeout(levelTimer);
-  const c = state.ctl, thermoRun = !!(c && c.a && c.th);
-  if (!canHeat || !(heaterOn() || thermoRun)) return;
+  if (!canHeat || !liveLevel(boxRun())) return;
+  levelTapAt = Date.now();
   levelTimer = setTimeout(() => {
-    const h = state.heater;
-    if (thermoRun ? c.mx === ctl.level : h && h.lvl === ctl.level) return;
-    sendHeat("lvl," + ctl.level, (thermoRun ? "Highest level " : "Level ") + ctl.level);
+    const b = boxRun();
+    if (!liveLevel(b) || b.level === ctl.level) return;
+    touched.delete("level");  // Sent: the level follows the box again a minute after the tap.
+    sendHeat("lvl," + ctl.level, (b.by === "temp" ? "Highest level " : "Level ") + ctl.level);
   }, 1500);
 }
 
 function tapStop() {
   if (!canHeat) return;
-  startArmed = 0;
-  sendHeat("off", "Stop");
+  heatTapped(); startArmed = 0; touched.clear();
+  sendHeat("off", "Stop", { by:"off" });
 }
 
 // HISTORY. The unit keeps one record an hour for 7 days and sends them when asked.
@@ -1733,13 +1817,13 @@ document.querySelectorAll(".step").forEach(el => el.addEventListener("click", (e
   const d = Number(e.target.dataset.d); if (!d) return;
   const s = STEPPERS[el.dataset.s];
   s.set(Math.min(s.max, Math.max(s.min, Math.round((s.get() + d * s.step()) * 10) / 10)));
+  if (el.closest("#ctl-run")) { touched.add(el.dataset.s); heatTapped(); }
   if (el.dataset.s === "level" && el.closest("#ctl-run")) tapLevel();
-  else if (el.closest("#ctl-run")) levelTapAt = Date.now();
   render();
 }));
 const onSeg = (id, fn) => $(id).addEventListener("click", (e) => { if (e.target.dataset.v) { fn(e.target.dataset.v); render(); } });
 onSeg("ctl-mode", v => { ctl.mode = v; });
-onSeg("ctl-by", v => { ctl.by = v; levelTapAt = Date.now(); });
+onSeg("ctl-by", v => { ctl.by = v; touched.add("by"); heatTapped(); });
 onSeg("set-unit", v => { prefs.unit = v; write(".prefs", prefs); });
 onSeg("pw-dev", v => { pw.dev = v; pw.sel = null; });
 onSeg("pw-tab", v => { pw.tab = v; pw.sel = null; });
@@ -1779,8 +1863,8 @@ $("victron-card").addEventListener("click", () => { pw.dev = state.shunt ? "shun
 $("tow").addEventListener("click", async () => {
   if (!canGuard) return;
   // Two taps, so a pocket tap cannot turn the guard off.
-  if (Date.now() - towArmed > 4000) { towArmed = Date.now(); renderGuard(); setTimeout(renderGuard, 4100); return; }
-  towArmed = 0;
+  if (Date.now() - towArmed >= ARM_MS) { towArmed = Date.now(); buzz(30); renderGuard(); setTimeout(renderGuard, ARM_MS + 100); return; }
+  towArmed = 0; buzz([40, 60, 40]);
   towSent = { at:Date.now() }; renderGuard();
   const j = await callUnit("guard", "tow");
   if (!j || j.return_value !== 1) towSent = { at:Date.now(), failed:true };
